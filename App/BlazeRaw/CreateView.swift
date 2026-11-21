@@ -1,0 +1,254 @@
+import BlazeEngine
+import SwiftUI
+
+struct CreateView: View {
+    @EnvironmentObject var model: GeneratorModel
+    @EnvironmentObject var library: SongLibrary
+    @EnvironmentObject var player: AudioPlayerModel
+
+    private let columns = [GridItem(.adaptive(minimum: 76), spacing: 8)]
+    private let lengths: [Double] = [60, 90, 120, 150, 180]
+
+    var body: some View {
+        NavigationStack {
+            ScrollView {
+                VStack(spacing: 16) {
+                    header
+                    presetsCard
+                    tempoCard
+                    moodCard
+                    instrumentsCard
+                    vocalsCard
+                    soundCard
+                    variationCard
+                    generateSection
+                }
+                .padding(.horizontal, 16)
+                .padding(.top, 8)
+                .padding(.bottom, 24)
+            }
+            .background(Theme.background.ignoresSafeArea())
+            .toolbar(.hidden, for: .navigationBar)
+            .safeAreaInset(edge: .bottom) { NowPlayingBar() }
+            .overlay {
+                if model.isGenerating { GeneratingOverlay() }
+            }
+            .alert("Oops", isPresented: errorBinding) {
+                Button("OK", role: .cancel) {}
+            } message: {
+                Text(model.errorMessage ?? "")
+            }
+        }
+    }
+
+    private var errorBinding: Binding<Bool> {
+        Binding(
+            get: { model.errorMessage != nil },
+            set: { if !$0 { model.errorMessage = nil } }
+        )
+    }
+
+    private var keyBinding: Binding<Int> {
+        Binding(
+            get: { model.settings.key ?? -1 },
+            set: { newValue in
+                model.settings.key = newValue < 0 ? nil : newValue
+                model.selectedPreset = nil
+            }
+        )
+    }
+
+    // MARK: sections
+
+    private var header: some View {
+        VStack(alignment: .leading, spacing: 4) {
+            Text("Blaze Raw")
+                .font(.system(size: 34, weight: .heavy, design: .rounded))
+                .foregroundStyle(Theme.accent)
+            Text("Make your own songs. Pick a style, then hit Generate.")
+                .font(.subheadline)
+                .foregroundStyle(.secondary)
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+    }
+
+    private var presetsCard: some View {
+        Card("Start with a style",
+             subtitle: model.selectedPreset?.blurb ?? "Custom mix. You changed something, nice!") {
+            ScrollView(.horizontal, showsIndicators: false) {
+                HStack(spacing: 8) {
+                    ForEach(StylePreset.allCases) { preset in
+                        Chip(emoji: preset.emoji,
+                             title: preset.title,
+                             selected: model.selectedPreset == preset) {
+                            model.apply(preset)
+                        }
+                        .frame(width: 104)
+                    }
+                }
+            }
+        }
+    }
+
+    private var tempoCard: some View {
+        Card("Tempo", subtitle: "How fast the song goes (beats per minute).") {
+            HStack(alignment: .firstTextBaseline) {
+                Text("\(Int(model.settings.tempo))")
+                    .font(.system(size: 46, weight: .heavy, design: .rounded))
+                    .monospacedDigit()
+                Text("BPM").font(.headline).foregroundStyle(.secondary)
+                Spacer()
+            }
+            Slider(value: model.bind(\.tempo), in: SongSettings.minTempo...SongSettings.maxTempo, step: 1)
+            HStack {
+                Button {
+                    model.tapTempo()
+                } label: {
+                    Label("Tap tempo", systemImage: "hand.tap")
+                }
+                .buttonStyle(.bordered)
+                Spacer()
+                Button {
+                    model.setTempo(model.settings.mood.suggestedTempo)
+                } label: {
+                    Text("Use \(model.settings.mood.title) tempo (\(Int(model.settings.mood.suggestedTempo)))")
+                        .font(.footnote)
+                }
+                .buttonStyle(.bordered)
+            }
+            Text("Tip: tap along with a song you like to copy its tempo.")
+                .font(.caption)
+                .foregroundStyle(.secondary)
+        }
+    }
+
+    private var moodCard: some View {
+        Card("Mood", subtitle: "Changes the chords, scale and beat.") {
+            LazyVGrid(columns: columns, spacing: 8) {
+                ForEach(Mood.allCases) { mood in
+                    Chip(emoji: mood.emoji, title: mood.title, selected: model.settings.mood == mood) {
+                        model.setMood(mood)
+                    }
+                }
+            }
+        }
+    }
+
+    private var instrumentsCard: some View {
+        Card("Instruments", subtitle: "Pick as many as you like.") {
+            LazyVGrid(columns: columns, spacing: 8) {
+                ForEach(InstrumentKind.allCases) { inst in
+                    Chip(emoji: inst.emoji, title: inst.title,
+                         selected: model.settings.instruments.contains(inst)) {
+                        model.toggle(inst)
+                    }
+                }
+            }
+        }
+    }
+
+    private var vocalsCard: some View {
+        Card("Vocals", subtitle: "Wordless synthesized voices. Mix and match!") {
+            LazyVGrid(columns: columns, spacing: 8) {
+                Chip(emoji: "🎼", title: "No vocals", selected: model.settings.vocals.isEmpty) {
+                    model.clearVocals()
+                }
+                ForEach(VocalStyle.allCases) { vocal in
+                    Chip(emoji: vocal.emoji, title: vocal.title,
+                         selected: model.settings.vocals.contains(vocal)) {
+                        model.toggle(vocal)
+                    }
+                }
+            }
+        }
+    }
+
+    private var soundCard: some View {
+        Card("Sound") {
+            HStack {
+                Text("Key")
+                Spacer()
+                Picker("Key", selection: keyBinding) {
+                    Text("Auto").tag(-1)
+                    ForEach(0..<12, id: \.self) { index in
+                        Text(SongSettings.keyNames[index]).tag(index)
+                    }
+                }
+                .pickerStyle(.menu)
+            }
+            VStack(alignment: .leading, spacing: 6) {
+                Text("Length")
+                Picker("Length", selection: model.bind(\.lengthSeconds)) {
+                    ForEach(lengths, id: \.self) { seconds in
+                        Text(mmss(seconds)).tag(seconds)
+                    }
+                }
+                .pickerStyle(.segmented)
+                Text("Songs are always at least 1 minute long.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
+            VStack(alignment: .leading, spacing: 2) {
+                Text("Energy: \(Int(model.settings.intensity * 100))%")
+                Slider(value: model.bind(\.intensity), in: 0...1)
+            }
+            VStack(alignment: .leading, spacing: 2) {
+                Text("Grit (crunchy distortion): \(Int(model.settings.grit * 100))%")
+                Slider(value: model.bind(\.grit), in: 0...1)
+            }
+            Toggle(isOn: model.bind(\.justIntonation)) {
+                VStack(alignment: .leading, spacing: 2) {
+                    Text("Just intonation")
+                    Text("Pure-ratio tuning for a smooth, slightly unreal sound.")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
+            }
+        }
+    }
+
+    private var variationCard: some View {
+        Card("Variations", subtitle: "Same settings, new song every time.") {
+            HStack(spacing: 10) {
+                Button {
+                    model.newVariation()
+                } label: {
+                    Text("🎲 New variation")
+                        .frame(maxWidth: .infinity)
+                }
+                .buttonStyle(.bordered)
+                Button {
+                    model.randomizeAll()
+                } label: {
+                    Text("🎰 Surprise me")
+                        .frame(maxWidth: .infinity)
+                }
+                .buttonStyle(.bordered)
+            }
+            Text("Variation #\(model.settings.seed)")
+                .font(.caption.monospacedDigit())
+                .foregroundStyle(.secondary)
+        }
+    }
+
+    private var generateSection: some View {
+        VStack(spacing: 8) {
+            Button {
+                model.generate(library: library, player: player)
+            } label: {
+                Text("⚡️ Generate song")
+                    .font(.title3.weight(.heavy))
+                    .frame(maxWidth: .infinity)
+                    .padding(.vertical, 16)
+                    .background(Theme.accent)
+                    .foregroundStyle(Color.black)
+                    .clipShape(RoundedRectangle(cornerRadius: 18, style: .continuous))
+            }
+            .disabled(model.isGenerating)
+            Text(model.summary)
+                .font(.caption)
+                .foregroundStyle(.secondary)
+                .multilineTextAlignment(.center)
+        }
+    }
+}
