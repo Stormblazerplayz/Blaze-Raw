@@ -196,4 +196,5 @@ GitHub repo → **Actions** → **iOS build and TestFlight** → **Run workflow*
 
 * I could not listen to the original *Intermodulation Demo*, and I did not copy it. The Aloboi-style preset is built from public information about the track and the artist, and its tempo is a starting guess. Use **Tap tempo** to match the real song.
 * The engine is checked by automated tests and by analysing the rendered audio (length, level, no clipping, tempo accuracy, vowel formants). It has not been judged by ears, so tweak the grit, energy and instruments until it sounds right to you.
-* The iPhone app was built and checked by the GitHub workflow on a Mac; Apple signing/TestFlight needs your Apple account (see above).
+* The iPhone app is built by the GitHub workflow on a real Mac runner (Xcode 26, iOS 26 SDK) on every push, including the unsigned Release archive and checks of the app package (bundle id, icon without transparency, encryption flag). The only part that has **not** been run is the signing and upload, because it needs your Apple account (see above).
+* This repository is public. That is fine: GitHub secrets are encrypted and are never given to pull requests from other people's forks. Still, never commit your `.p8` key (`.gitignore` blocks it).
