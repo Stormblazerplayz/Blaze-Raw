@@ -13,7 +13,10 @@ struct AboutView: View {
             ScrollView {
                 VStack(spacing: 16) {
                     Card("How it works") {
-                        Text("Blaze Raw makes music right on your phone. It picks a key, chords, a melody and a beat that fit your mood and tempo, then plays them with built-in synthesizers and a singing-voice synth. It works with no internet and needs no downloaded AI model. Every song is at least one minute long.")
+                        Text("Blaze Raw makes music right on your phone. Every song gets its own random recipe: a key and scale, a chord loop, a beat, a bass line, a melody and a sound for every instrument. Your genre picks the rules, your mood tilts them, and the variation number makes the choices. Then built-in synthesizers and a singing-voice synth play it. It works with no internet and needs no downloaded AI model. Every song is at least one minute long.")
+                    }
+                    Card("Genres and moods") {
+                        Text("Pick a genre (Electronic, Synthpop, Pop, Chillwave, Downtempo, Ambient, Dream Pop, Indietronica, Lo-fi, Nu-Disco or EDM) to choose the kind of music, then a mood (Relaxed, Introspective, Melancholic, Romantic, Uplifting and more) to choose the feeling. The tempo follows your genre and mood until you move the slider yourself. Choose Any to let the mood decide on its own.")
                     }
                     Card("The Aloboi-style preset") {
                         Text("This style is inspired by public information about Aloboi's \"Intermodulation\": electronic, house, downtempo and vocal, with gritty saw-wave synths and just-intonation tuning. It makes brand-new music in that spirit and does not copy any song. Use Tap tempo to match the real song's speed, then change the mood, instruments and vocals to make it your own.")
@@ -26,7 +29,8 @@ struct AboutView: View {
                     }
                     Card("Tips") {
                         VStack(alignment: .leading, spacing: 6) {
-                            Text("• Tap 🎲 New variation to get a different song with the same settings.")
+                            Text("• Tap 🎲 New variation to get a different song in the same genre and mood.")
+                            Text("• Try one genre with different moods, and one mood with different genres.")
                             Text("• Swipe a song right in My Songs to Remix it.")
                             Text("• Turn up Grit for a rougher, crunchier sound.")
                             Text("• Try Just intonation with the Pad and Bells for a dreamy feel.")

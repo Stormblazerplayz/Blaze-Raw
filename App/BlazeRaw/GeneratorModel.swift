@@ -28,6 +28,9 @@ final class GeneratorModel: ObservableObject {
     @Published private(set) var isGenerating = false
     @Published private(set) var progress: Double = 0
     @Published var errorMessage: String?
+    /// True once you set the tempo yourself (slider, Tap tempo or the "Use ... tempo" button).
+    /// Until then the tempo follows your genre and mood, and a new variation also gets a new tempo.
+    @Published private(set) var tempoIsManual = false
 
     private var cancelFlag = CancelFlag()
     private var taps: [Date] = []
@@ -51,18 +54,39 @@ final class GeneratorModel: ObservableObject {
         )
     }
 
+    /// The tempo slider. Moving it means "I choose the tempo", so it stops following genre and mood.
+    var tempoBinding: Binding<Double> {
+        Binding(
+            get: { self.settings.tempo },
+            set: { newValue in self.setTempo(newValue) }
+        )
+    }
+
     func apply(_ preset: StylePreset) {
         settings = preset.settings(seed: settings.seed)
         selectedPreset = preset
+        tempoIsManual = false
+    }
+
+    /// Picks the kind of music. `nil` means "Any": only the mood decides the style.
+    /// A new genre has its own tempo range, so the tempo moves to a fitting one (and stops being "manual").
+    func setGenre(_ genre: Genre?) {
+        settings.genre = genre
+        selectedPreset = nil
+        tempoIsManual = false
+        settings.tempo = clampTempo(autoTempo())
     }
 
     func setMood(_ mood: Mood) {
         settings.mood = mood
         selectedPreset = nil
+        applyAutoTempoIfNotManual()
     }
 
+    /// Sets the tempo by hand (slider, Tap tempo, "Use ... tempo").
     func setTempo(_ tempo: Double) {
-        settings.tempo = min(max(tempo.rounded(), SongSettings.minTempo), SongSettings.maxTempo)
+        settings.tempo = clampTempo(tempo)
+        tempoIsManual = true
         selectedPreset = nil
     }
 
@@ -90,15 +114,26 @@ final class GeneratorModel: ObservableObject {
         selectedPreset = nil
     }
 
+    /// Same genre, mood and instruments, a brand-new song. While the tempo is not set by hand it also
+    /// gets a new tempo (inside the genre's range) so variations differ in speed too.
     func newVariation() {
         settings.seed = UInt64.random(in: 1...999_999)
+        applyAutoTempoIfNotManual()
     }
 
     /// Pick everything at random for a surprise.
     func randomizeAll() {
+        let genre: Genre? = Double.random(in: 0...1) < 0.85 ? Genre.allCases.randomElement() : nil
         let mood = Mood.allCases.randomElement() ?? .dark
+        let seed = UInt64.random(in: 1...999_999)
+        var tempo = (mood.suggestedTempo + Double.random(in: -12...12)).rounded()
+        if let genre = genre {
+            tempo = genre.tempo(for: mood, seed: seed)
+        }
+        // Ambient music usually has no beat.
+        let drumChance: Double = genre == .ambient ? 0.15 : 0.8
         var instruments = Set<InstrumentKind>()
-        if Double.random(in: 0...1) < 0.8 { instruments.insert(.drums) }
+        if Double.random(in: 0...1) < drumChance { instruments.insert(.drums) }
         let others = InstrumentKind.allCases.filter { $0 != .drums }.shuffled()
         for inst in others.prefix(Int.random(in: 2...4)) { instruments.insert(inst) }
         var vocals = Set<VocalStyle>()
@@ -106,8 +141,9 @@ final class GeneratorModel: ObservableObject {
             for v in VocalStyle.allCases.shuffled().prefix(Int.random(in: 1...2)) { vocals.insert(v) }
         }
         settings = SongSettings(
-            tempo: (mood.suggestedTempo + Double.random(in: -12...12)).rounded(),
+            tempo: clampTempo(tempo),
             mood: mood,
+            genre: genre,
             instruments: instruments,
             vocals: vocals,
             key: Bool.random() ? nil : Int.random(in: 0...11),
@@ -115,15 +151,20 @@ final class GeneratorModel: ObservableObject {
             intensity: (Double.random(in: 0.4...1) * 10).rounded() / 10,
             grit: (Double.random(in: 0...1) * 10).rounded() / 10,
             justIntonation: Bool.random(),
-            seed: UInt64.random(in: 1...999_999)
+            seed: seed
         ).clamped()
         selectedPreset = nil
+        tempoIsManual = false
     }
 
     /// Load the settings of an older song so you can make a new version of it.
+    /// The tempo of that song is kept (a remix is "the same, but new"), but the variation number is new:
+    /// the same number would give back exactly the same song.
     func load(_ other: SongSettings) {
         settings = other
+        settings.seed = UInt64.random(in: 1...999_999)
         selectedPreset = nil
+        tempoIsManual = true
     }
 
     /// Tap along with a song to find its tempo.
@@ -139,13 +180,62 @@ final class GeneratorModel: ObservableObject {
         setTempo(60.0 / average)
     }
 
+    // MARK: tempo helpers
+
+    /// What the "Use ... tempo" button uses: the genre's tempo for this mood (or the mood's own tempo).
+    var suggestedTempoValue: Double {
+        if let genre = settings.genre {
+            return clampTempo(genre.tempo(for: settings.mood, seed: settings.seed))
+        }
+        return clampTempo(settings.mood.suggestedTempo)
+    }
+
+    var suggestedTempoName: String {
+        settings.genre?.title ?? settings.mood.title
+    }
+
+    /// Text of the button, for example "Use Nu-Disco tempo (119)".
+    var suggestedTempoTitle: String {
+        "Use \(suggestedTempoName) tempo (\(Int(suggestedTempoValue)))"
+    }
+
+    func useSuggestedTempo() {
+        setTempo(suggestedTempoValue)
+    }
+
+    private func clampTempo(_ tempo: Double) -> Double {
+        let safe = tempo.isFinite ? tempo : 120
+        return min(max(safe.rounded(), SongSettings.minTempo), SongSettings.maxTempo)
+    }
+
+    /// The tempo the app picks for you: inside the genre's range, leaning slower or faster with the mood.
+    /// Without a genre it is the mood's tempo with a small wobble from the variation number.
+    private func autoTempo() -> Double {
+        if let genre = settings.genre {
+            return genre.tempo(for: settings.mood, seed: settings.seed)
+        }
+        var g = SeededRNG(seed: settings.seed).fork(56)
+        let wobble = (g.double() - 0.5) * 16
+        return settings.mood.suggestedTempo + wobble
+    }
+
+    private func applyAutoTempoIfNotManual() {
+        guard !tempoIsManual else { return }
+        settings.tempo = clampTempo(autoTempo())
+    }
+
     var summary: String {
         let minutes = Int(settings.lengthSeconds) / 60
         let seconds = Int(settings.lengthSeconds) % 60
         let length = String(format: "%d:%02d", minutes, seconds)
-        return "\(length) · \(Int(settings.tempo)) BPM · \(settings.mood.title) · "
-            + "\(settings.instruments.count) instruments · "
-            + (settings.vocals.isEmpty ? "no vocals" : "\(settings.vocals.count) vocal\(settings.vocals.count == 1 ? "" : "s")")
+        var parts: [String] = []
+        if let genre = settings.genre { parts.append(genre.title) }
+        parts.append(settings.mood.title)
+        parts.append("\(Int(settings.tempo)) BPM")
+        parts.append(length)
+        parts.append("\(settings.instruments.count) instruments")
+        parts.append(settings.vocals.isEmpty ? "no vocals" : "\(settings.vocals.count) vocal\(settings.vocals.count == 1 ? "" : "s")")
+        return parts.joined(separator: " · ")
     }
 
     // MARK: making the song

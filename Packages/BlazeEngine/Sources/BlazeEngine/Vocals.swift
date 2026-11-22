@@ -140,6 +140,7 @@ enum VoiceSynth {
             let voiceNorm = 1 / sqrt(Float(voices))
             var morph: Float = 0
             var vowelGain = gainA
+            let vibAmt: Float = spec.vibratoCents / 1200 * 0.693
 
             for k in 0..<total {
                 let i = start + k
@@ -163,7 +164,7 @@ enum VoiceSynth {
                     if spec.whisper {
                         src = singers[v].noise.next() * 0.5
                     } else {
-                        let vib = 1 + (spec.vibratoCents / 1200 * 0.693) * vibOnset
+                        let vib = 1 + vibAmt * vibOnset
                             * sin(twoPi * singers[v].vibRate * t + singers[v].vibPhase)
                         let dt = min(f0 * singers[v].detuneRatio * bend * vib / sr, 0.45)
                         let saw = sawBL(singers[v].phase, dt)
@@ -293,10 +294,14 @@ extension SongPlan {
             }
 
         case .vocalChops:
-            let patterns: [[Int]] = [[0, 3, 6, 10, 12], [2, 5, 8, 11, 14], [0, 2, 6, 8, 11, 14]]
+            // The chops borrow rhythms from this song's own parts, so they lock in with the groove.
+            let patterns: [[Int]] = [
+                [0, 3, 6, 10, 12], [2, 5, 8, 11, 14], [0, 2, 6, 8, 11, 14], [1, 4, 7, 10, 13], [0, 4, 7, 10, 14],
+                profile.stabRhythm, profile.stabRhythmAlt, profile.pluckRhythm
+            ]
             let patA = g.pick(patterns)
             let patB = g.pick(patterns)
-            let vowels = [0, 1, 3, 2]
+            let vowels: [Int] = g.pick([[0, 1, 3, 2], [3, 2, 0, 4], [1, 2, 1, 3], [0, 3, 4, 1]])
             var hitCount = 0
             for sec in sections {
                 let lvl = SongPlan.vocalLevel(.vocalChops, sec.kind)
@@ -324,7 +329,8 @@ extension SongPlan {
             }
 
         case .robot:
-            let steps = [0, 2, 3, 6, 8, 10, 11, 14]
+            let steps: [Int] = g.pick([[0, 2, 3, 6, 8, 10, 11, 14], [0, 3, 6, 8, 11, 14], [0, 2, 4, 6, 8, 10, 12, 14],
+                                       [0, 4, 6, 8, 12, 14]])
             let vowels = [0, 1, 2, 3, 4, 3, 2, 1]
             for sec in sections {
                 let lvl = SongPlan.vocalLevel(.robot, sec.kind)
@@ -346,6 +352,7 @@ extension SongPlan {
 
         case .whisper:
             let vowels = [0, 3, 1, 4]
+            let whisperSteps: [Int] = g.pick([[2, 6, 10, 14], [0, 4, 8, 12], [3, 7, 11, 15], [2, 5, 10, 13]])
             var hitCount = 0
             for sec in sections {
                 let lvl = SongPlan.vocalLevel(.whisper, sec.kind)
@@ -353,7 +360,7 @@ extension SongPlan {
                 for b in 0..<sec.bars {
                     if sec.kind == .chorus && b % 2 == 1 { continue }
                     let bar = sec.startBar + b
-                    for step in [2, 6, 10, 14] {
+                    for step in whisperSteps {
                         let n = NoteEvent(beat: stepBeat(bar, step), dur: 0.35, semis: 0, vel: vel(lvl, &g))
                         let v = vowels[hitCount % vowels.count]
                         let spec = VoiceSpec(female: false, vowelFrom: v, vowelTo: vowels[(hitCount + 1) % vowels.count],

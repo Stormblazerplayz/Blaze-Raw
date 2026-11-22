@@ -15,6 +15,7 @@ struct CreateView: View {
                 VStack(spacing: 16) {
                     header
                     presetsCard
+                    genreCard
                     tempoCard
                     moodCard
                     instrumentsCard
@@ -65,7 +66,7 @@ struct CreateView: View {
             Text("Blaze Raw")
                 .font(.system(size: 34, weight: .heavy, design: .rounded))
                 .foregroundStyle(Theme.accent)
-            Text("Make your own songs. Pick a style, then hit Generate.")
+            Text("Make your own songs. Pick a style or a genre and a mood, then hit Generate.")
                 .font(.subheadline)
                 .foregroundStyle(.secondary)
         }
@@ -90,6 +91,29 @@ struct CreateView: View {
         }
     }
 
+    private var genreCard: some View {
+        Card("Genre", subtitle: model.settings.genre?.blurb ?? "Open sound: only the mood decides the style.") {
+            ScrollView(.horizontal, showsIndicators: false) {
+                HStack(spacing: 8) {
+                    Chip(emoji: "🌍",
+                         title: "Any",
+                         selected: model.settings.genre == nil) {
+                        model.setGenre(nil)
+                    }
+                    .frame(width: 80)
+                    ForEach(Genre.allCases) { genre in
+                        Chip(emoji: genre.emoji,
+                             title: genre.title,
+                             selected: model.settings.genre == genre) {
+                            model.setGenre(genre)
+                        }
+                        .frame(width: 104)
+                    }
+                }
+            }
+        }
+    }
+
     private var tempoCard: some View {
         Card("Tempo", subtitle: "How fast the song goes (beats per minute).") {
             HStack(alignment: .firstTextBaseline) {
@@ -99,7 +123,7 @@ struct CreateView: View {
                 Text("BPM").font(.headline).foregroundStyle(.secondary)
                 Spacer()
             }
-            Slider(value: model.bind(\.tempo), in: SongSettings.minTempo...SongSettings.maxTempo, step: 1)
+            Slider(value: model.tempoBinding, in: SongSettings.minTempo...SongSettings.maxTempo, step: 1)
             HStack {
                 Button {
                     model.tapTempo()
@@ -109,13 +133,18 @@ struct CreateView: View {
                 .buttonStyle(.bordered)
                 Spacer()
                 Button {
-                    model.setTempo(model.settings.mood.suggestedTempo)
+                    model.useSuggestedTempo()
                 } label: {
-                    Text("Use \(model.settings.mood.title) tempo (\(Int(model.settings.mood.suggestedTempo)))")
+                    Text(model.suggestedTempoTitle)
                         .font(.footnote)
                 }
                 .buttonStyle(.bordered)
             }
+            Text(model.tempoIsManual
+                 ? "You set the tempo, so it stays put."
+                 : "The tempo follows your genre and mood. Move the slider to set it yourself.")
+                .font(.caption)
+                .foregroundStyle(.secondary)
             Text("Tip: tap along with a song you like to copy its tempo.")
                 .font(.caption)
                 .foregroundStyle(.secondary)
@@ -123,7 +152,7 @@ struct CreateView: View {
     }
 
     private var moodCard: some View {
-        Card("Mood", subtitle: "Changes the chords, scale and beat.") {
+        Card("Mood", subtitle: "Changes the chords, scale and feel.") {
             LazyVGrid(columns: columns, spacing: 8) {
                 ForEach(Mood.allCases) { mood in
                     Chip(emoji: mood.emoji, title: mood.title, selected: model.settings.mood == mood) {
@@ -208,7 +237,7 @@ struct CreateView: View {
     }
 
     private var variationCard: some View {
-        Card("Variations", subtitle: "Same settings, new song every time.") {
+        Card("Variations", subtitle: "Same genre and mood, a brand-new song every time.") {
             HStack(spacing: 10) {
                 Button {
                     model.newVariation()

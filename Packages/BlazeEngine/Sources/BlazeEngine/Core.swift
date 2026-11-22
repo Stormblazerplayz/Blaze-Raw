@@ -82,6 +82,16 @@ struct Noise {
     return c * c * (3 - 2 * c)
 }
 
+/// 2 to the power `x` (Float).
+@inline(__always) func pow2(_ x: Float) -> Float {
+    pow(2 as Float, x)
+}
+
+/// Ratio for a pitch change in cents (1200 cents = one octave).
+@inline(__always) func centsRatio(_ cents: Float) -> Float {
+    pow2(cents / 1200)
+}
+
 @inline(__always) func floorDiv(_ a: Int, _ b: Int) -> Int {
     let q = a / b
     return (a % b != 0 && (a < 0) != (b < 0)) ? q - 1 : q
@@ -142,6 +152,7 @@ struct Noise {
 /// How a sound is placed in the mix.
 struct Mix {
     let gain: Float
+    let pan: Float
     let gL: Float
     let gR: Float
     let rev: Float
@@ -152,6 +163,7 @@ struct Mix {
         let p = clampf(pan, -1, 1)
         let a = (p + 1) * 0.25 * Float.pi
         self.gain = gain
+        self.pan = p
         self.gL = gain * cos(a) * 1.4142135
         self.gR = gain * sin(a) * 1.4142135
         self.rev = reverb
@@ -162,6 +174,16 @@ struct Mix {
     /// Same sound, different place in the stereo field.
     func with(pan: Float) -> Mix {
         Mix(gain: gain, pan: pan, reverb: rev, delay: dly, duck: duck)
+    }
+
+    /// Same placement and sends, louder or quieter (used to balance different patches).
+    func scaled(by k: Float) -> Mix {
+        Mix(gain: gain * k, pan: pan, reverb: rev, delay: dly, duck: duck)
+    }
+
+    /// Same sound with the reverb send multiplied by `k` (never above 1).
+    func reverbScaled(by k: Float) -> Mix {
+        Mix(gain: gain, pan: pan, reverb: min(rev * k, 1), delay: dly, duck: duck)
     }
 }
 
