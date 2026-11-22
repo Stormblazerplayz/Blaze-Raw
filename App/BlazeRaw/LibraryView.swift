@@ -46,7 +46,13 @@ struct LibraryView: View {
     }
 
     private func detail(_ song: SavedSong) -> String {
-        "\(song.settings.mood.title) · \(Int(song.settings.tempo)) BPM · \(song.keyName) \(song.scaleName) · \(mmss(song.duration))"
+        var parts: [String] = []
+        if let genre = song.settings.genre { parts.append(genre.title) }
+        parts.append(song.settings.mood.title)
+        parts.append("\(Int(song.settings.tempo)) BPM")
+        parts.append("\(song.keyName) \(song.scaleName)")
+        parts.append(mmss(song.duration))
+        return parts.joined(separator: " · ")
     }
 
     private func row(_ song: SavedSong) -> some View {

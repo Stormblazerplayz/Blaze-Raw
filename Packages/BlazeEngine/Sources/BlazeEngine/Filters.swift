@@ -130,9 +130,10 @@ private final class AllpassFilter {
 
 enum Effects {
     /// Adds a stereo reverb of `send` into `outL` / `outR`.
+    /// `preDelayFrames` delays the start of the reverb after the dry sound (0 = none).
     static func reverb(send: UnsafePointer<Float>, frames: Int,
                        outL: UnsafeMutablePointer<Float>, outR: UnsafeMutablePointer<Float>,
-                       sr: Float, room: Float, damping: Float, wet: Float) {
+                       sr: Float, room: Float, damping: Float, wet: Float, preDelayFrames: Int = 0) {
         let scale = Double(sr) / 44100.0
         let combTunings = [1116, 1188, 1277, 1356, 1422, 1491, 1557, 1617]
         let allpassTunings = [556, 441, 341, 225]
@@ -146,9 +147,11 @@ enum Effects {
         let feedback = clampf(0.7 + room * 0.28, 0.5, 0.98)
         let damp = clampf(damping, 0, 0.95)
         let inputGain: Float = 0.015
+        let pre = max(0, preDelayFrames)
 
         for i in 0..<frames {
-            let x = send[i] * inputGain
+            let src = i - pre
+            let x = (src >= 0 ? send[src] : 0) * inputGain
             var sumL: Float = 0
             var sumR: Float = 0
             for c in 0..<8 {
@@ -192,6 +195,112 @@ enum Effects {
             outR[i] += yR * gain
             idx += 1
             if idx == size { idx = 0 }
+        }
+    }
+
+    /// Adds vinyl crackle (soft random ticks, about nine a second) and a faint hiss on top of the
+    /// finished mix. Deterministic (fixed noise seeds). Output stays within +-0.98.
+    static func addCrackle(l: UnsafeMutablePointer<Float>, r: UnsafeMutablePointer<Float>,
+                           frames: Int, sr: Float, level: Float) {
+        guard level > 0 else { return }
+        var tick = Noise(seed: 424_242)
+        var hissNoise = Noise(seed: 97_531)
+        var env: Float = 0
+        let threshold: Float = 1 - 9 / sr
+        for i in 0..<frames {
+            let u = abs(tick.next())
+            let h = hissNoise.next()
+            if u > threshold { env = level * (0.35 + 0.65 * abs(h)) }
+            var v = h * level * 0.05
+            if env > 0.00001 {
+                v += h * env
+                env *= 0.93
+            } else {
+                env = 0
+            }
+            l[i] = min(max(l[i] + v, -0.98), 0.98)
+            r[i] = min(max(r[i] + v * 0.85, -0.98), 0.98)
+        }
+    }
+}
+
+// MARK: - Lo-fi tape chain
+
+enum LoFi {
+    /// Runs the stereo mix through a worn-tape chain, in place: slow pitch wobble (tape wow and
+    /// flutter), sample-rate and bit reduction, then a low-pass filter.
+    /// - Parameters:
+    ///   - cutoff: low-pass in Hz (at or above 0.4 x the sample rate it is skipped).
+    ///   - bitHold: hold every n-th sample (1 = off); 2 = half the sample rate.
+    ///   - bits: bit depth (16 or more = off).
+    ///   - wowMs: depth of the pitch wobble in milliseconds of delay (0 = off).
+    static func process(l: UnsafeMutablePointer<Float>, r: UnsafeMutablePointer<Float>, frames: Int, sr: Float,
+                        cutoff: Float, bitHold: Int, bits: Int, wowMs: Float) {
+        let hold = max(1, bitHold)
+        let levels: Float = bits >= 16 ? 0 : Float(1 << (min(max(bits, 4), 15) - 1))
+        let useLP = cutoff < sr * 0.4
+        var lpL = SVF(cutoff: min(cutoff, sr * 0.45), q: 0.75, sr: sr)
+        var lpR = SVF(cutoff: min(cutoff, sr * 0.45), q: 0.75, sr: sr)
+
+        let useWow = wowMs > 0.001
+        let base = 0.006 * sr
+        let depth = min(wowMs, 4) * 0.001 * sr
+        let size = Int(base + depth) + 16
+        let bufL = UnsafeMutablePointer<Float>.allocate(capacity: size)
+        let bufR = UnsafeMutablePointer<Float>.allocate(capacity: size)
+        bufL.initialize(repeating: 0, count: size)
+        bufR.initialize(repeating: 0, count: size)
+        defer {
+            bufL.deallocate()
+            bufR.deallocate()
+        }
+        var w = 0
+        var heldL: Float = 0
+        var heldR: Float = 0
+        var holdCount = 0
+        let twoPi = 2 * Float.pi
+        let invSr = 1 / sr
+
+        for i in 0..<frames {
+            var xl = l[i]
+            var xr = r[i]
+            if useWow {
+                bufL[w] = xl
+                bufR[w] = xr
+                let t = Float(i) * invSr
+                // A slow "wow" plus only a whisper of fast "flutter": the fast part was far too strong
+                // (about 27 cents of warble), real tape flutter is well under half a percent.
+                let wobble = 0.7 * sin(twoPi * 0.55 * t) + 0.03 * sin(twoPi * 6.3 * t + 1.3)
+                var rd = Float(w) - (base + depth * wobble)
+                if rd < 0 { rd += Float(size) }
+                let i0 = min(Int(rd), size - 1)
+                let fr = rd - Float(i0)
+                let i1 = i0 + 1 >= size ? 0 : i0 + 1
+                xl = bufL[i0] * (1 - fr) + bufL[i1] * fr
+                xr = bufR[i0] * (1 - fr) + bufR[i1] * fr
+                w += 1
+                if w == size { w = 0 }
+            }
+            if hold > 1 {
+                if holdCount == 0 {
+                    heldL = xl
+                    heldR = xr
+                }
+                holdCount += 1
+                if holdCount >= hold { holdCount = 0 }
+                xl = heldL
+                xr = heldR
+            }
+            if levels > 0 {
+                xl = (xl * levels).rounded() / levels
+                xr = (xr * levels).rounded() / levels
+            }
+            if useLP {
+                xl = lpL.lowpass(xl)
+                xr = lpR.lowpass(xr)
+            }
+            l[i] = xl
+            r[i] = xr
         }
     }
 }

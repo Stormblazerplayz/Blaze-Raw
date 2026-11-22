@@ -1,3 +1,4 @@
+import Foundation
 import XCTest
 @testable import BlazeEngine
 
@@ -316,5 +317,504 @@ final class BlazeEngineTests: XCTestCase {
         let data = try JSONEncoder().encode(s)
         let back = try JSONDecoder().decode(SongSettings.self, from: data)
         XCTAssertEqual(s, back)
+
+        // Every preset (they all carry a genre now) survives a save and load too.
+        for preset in StylePreset.allCases {
+            let p = preset.settings(seed: 3)
+            let again = try JSONDecoder().decode(SongSettings.self, from: JSONEncoder().encode(p))
+            XCTAssertEqual(p, again, "preset \(preset)")
+        }
+    }
+
+    func testSongsSavedByOlderVersionsStillLoad() throws {
+        // Older versions did not save a genre. Their JSON must still decode (as "any genre").
+        let s = SongSettings(tempo: 100, mood: .sad, genre: .pop, seed: 4)
+        let data = try JSONEncoder().encode(s)
+        guard var object = try JSONSerialization.jsonObject(with: data) as? [String: Any] else {
+            XCTFail("settings did not encode to a JSON object")
+            return
+        }
+        object.removeValue(forKey: "genre")
+        let old = try JSONSerialization.data(withJSONObject: object)
+        let back = try JSONDecoder().decode(SongSettings.self, from: old)
+        XCTAssertNil(back.genre)
+        XCTAssertEqual(back.mood, .sad)
+        XCTAssertEqual(back.tempo, 100)
+    }
+
+    // MARK: genres and moods
+
+    private let fullBand: Set<InstrumentKind> = [.drums, .subBass, .pad, .piano, .arp, .guitar, .lead, .strings, .bells, .pluck]
+
+    func testEveryGenreAndMoodRendersCleanly() {
+        // 11 genres x 3 moods, rotated so that every one of the 13 moods is used with several genres.
+        let moods = Mood.allCases
+        for (gi, genre) in Genre.allCases.enumerated() {
+            for mi in 0..<3 {
+                let mood = moods[(gi * 3 + mi) % moods.count]
+                var s = SongSettings(tempo: genre.tempo(for: mood, seed: 7), mood: mood, genre: genre,
+                                     instruments: fullBand, vocals: [.femaleAah, .choir],
+                                     lengthSeconds: 60, seed: UInt64(10 + gi * 3 + mi))
+                s.key = nil
+                let song = render(s)
+                checkHealthy(song, "\(genre) / \(mood)")
+                XCTAssertEqual(song.genreTitle, genre.title)
+                XCTAssertFalse(song.recipe.isEmpty, "\(genre) / \(mood): empty recipe")
+            }
+        }
+    }
+
+    func testEveryMoodWorksWithEveryGenreInTheCheapestWay() {
+        // The engine must never crash or go silent for any pair, so check all 143 plans and a light render of a few.
+        for genre in Genre.allCases {
+            for mood in Mood.allCases {
+                let s = SongSettings(tempo: genre.suggestedTempo, mood: mood, genre: genre,
+                                     instruments: fullBand, vocals: [.choir], lengthSeconds: 60, seed: 5)
+                let plan = Composer.makePlan(s)
+                XCTAssertGreaterThanOrEqual(Double(plan.totalBars) * 4 * 60 / s.tempo, 60, "\(genre) / \(mood)")
+                XCTAssertFalse(plan.sections.isEmpty)
+                XCTAssertFalse(plan.recipe.isEmpty)
+                XCTAssertFalse(plan.profile.palette.summary.isEmpty, "\(genre) / \(mood): palette summary")
+                XCTAssertFalse(plan.profile.kit.summary.isEmpty, "\(genre) / \(mood): kit summary")
+                XCTAssertFalse(plan.profile.fx.summary.isEmpty, "\(genre) / \(mood): fx summary")
+                XCTAssertFalse(plan.profile.master.summary.isEmpty, "\(genre) / \(mood): master summary")
+            }
+        }
+    }
+
+    func testGenreTemposStayInsideTheirRange() {
+        for genre in Genre.allCases {
+            XCTAssertGreaterThanOrEqual(genre.tempoRange.lowerBound, SongSettings.minTempo, "\(genre)")
+            XCTAssertLessThanOrEqual(genre.tempoRange.upperBound, SongSettings.maxTempo, "\(genre)")
+            var seen = Set<Double>()
+            for mood in Mood.allCases {
+                for seed in 1...20 {
+                    let t = genre.tempo(for: mood, seed: UInt64(seed))
+                    XCTAssertTrue(genre.tempoRange.contains(t), "\(genre) / \(mood) seed \(seed): \(t)")
+                    seen.insert(t)
+                }
+            }
+            XCTAssertGreaterThanOrEqual(seen.count, 8, "\(genre): tempos barely vary")
+            XCTAssertEqual(genre.tempo(for: .happy, seed: 9), genre.tempo(for: .happy, seed: 9), "deterministic")
+        }
+    }
+
+    // MARK: variety
+
+    func testTheSameSettingsGiveManyDifferentRecipes() {
+        // Same genre, same mood, same everything except the seed: the recipes should almost never repeat.
+        let combos: [(Genre?, Mood)] = [
+            (.pop, .happy), (.edm, .energetic), (.lofi, .melancholic), (.ambient, .introspective),
+            (.nuDisco, .uplifting), (.dreamPop, .romantic), (nil, .dark), (.downtempo, .relaxed)
+        ]
+        for (genre, mood) in combos {
+            var prints = Set<String>()
+            var scales = Set<String>()
+            var drumFeels = Set<Int>()
+            var bassFeels = Set<Int>()
+            for seed in 1...60 {
+                let s = SongSettings(tempo: 110, mood: mood, genre: genre, instruments: fullBand,
+                                     lengthSeconds: 90, seed: UInt64(seed))
+                let plan = Composer.makePlan(s)
+                prints.insert(plan.fingerprint)
+                scales.insert(plan.profile.scale.rawValue)
+                drumFeels.insert(plan.profile.drumStyle.rawValue * 10 + plan.profile.grooveVariant)
+                bassFeels.insert(plan.profile.bassStyle.rawValue * 10 + plan.profile.bassVariant)
+            }
+            let label = "\(genre?.title ?? "Open") / \(mood.title)"
+            XCTAssertGreaterThanOrEqual(prints.count, 57, "\(label): only \(prints.count) different recipes in 60 songs")
+            XCTAssertGreaterThanOrEqual(scales.count, 2, "\(label): always the same scale")
+            XCTAssertGreaterThanOrEqual(drumFeels.count, 5, "\(label): only \(drumFeels.count) drum feels")
+            XCTAssertGreaterThanOrEqual(bassFeels.count, 4, "\(label): only \(bassFeels.count) bass feels")
+        }
+    }
+
+    func testEachGenreHasItsOwnCharacter() {
+        // Same seed and mood, every genre: the recipes must all differ.
+        var prints = Set<String>()
+        for genre in Genre.allCases {
+            let s = SongSettings(tempo: genre.suggestedTempo, mood: .uplifting, genre: genre, instruments: fullBand,
+                                 lengthSeconds: 90, seed: 31)
+            prints.insert(Composer.makePlan(s).fingerprint)
+        }
+        XCTAssertEqual(prints.count, Genre.allCases.count)
+
+        // And the genres' signature feels show up often enough to matter.
+        func share(_ genre: Genre, _ test: (SongPlan) -> Bool) -> Double {
+            var hits = 0
+            for seed in 1...80 {
+                let s = SongSettings(tempo: genre.suggestedTempo, mood: .relaxed, genre: genre, instruments: fullBand,
+                                     lengthSeconds: 90, seed: UInt64(seed))
+                if test(Composer.makePlan(s)) { hits += 1 }
+            }
+            return Double(hits) / 80
+        }
+        // (80 seeded songs each; about 55 % are expected, so 40 % leaves room without losing the point.)
+        XCTAssertGreaterThan(share(.nuDisco) { $0.profile.drumStyle == .disco }, 0.4)
+        XCTAssertGreaterThan(share(.lofi) { $0.profile.drumStyle == .boomBap }, 0.4)
+        XCTAssertGreaterThan(share(.ambient) { $0.profile.drumStyle == .minimal }, 0.4)
+        XCTAssertGreaterThan(share(.ambient) { $0.profile.bassStyle == .drone || $0.profile.bassStyle == .sustained }, 0.8)
+        XCTAssertGreaterThan(share(.edm) { $0.profile.drumStyle == .fourOnFloor }, 0.5)
+        XCTAssertGreaterThan(share(.synthpop) { $0.profile.drumStyle == .gated80s || $0.profile.drumStyle == .backbeat }, 0.5)
+        XCTAssertGreaterThan(share(.chillwave) { $0.profile.swing > 0.05 }, 0.5)
+        XCTAssertGreaterThan(share(.lofi) { $0.profile.swing > 0.12 }, 0.5)
+    }
+
+    func testMoodsTiltTheHarmony() {
+        func share(_ mood: Mood, _ test: (Scale) -> Bool) -> Double {
+            var hits = 0
+            for seed in 1...80 {
+                let s = SongSettings(tempo: 100, mood: mood, genre: nil, instruments: [.pad], lengthSeconds: 60,
+                                     seed: UInt64(seed))
+                if test(Composer.makePlan(s).profile.scale) { hits += 1 }
+            }
+            return Double(hits) / 80
+        }
+        let minorish: (Scale) -> Bool = { $0 == .naturalMinor || $0 == .harmonicMinor || $0 == .melodicMinor || $0 == .phrygian }
+        XCTAssertGreaterThan(share(.melancholic, minorish), 0.5)
+        XCTAssertGreaterThan(share(.sad, minorish), 0.6)
+        XCTAssertLessThan(share(.uplifting, minorish), 0.3)
+        XCTAssertLessThan(share(.happy, minorish), 0.25)
+        XCTAssertGreaterThan(share(.dreamy) { $0 == .lydian }, 0.2)
+    }
+
+    func testPlansAreIndependentOfTheChosenInstruments() {
+        // Sound design, drums and melodies come from the seed only.
+        for genre in [Genre.pop, .lofi, .edm] {
+            let a = Composer.makePlan(SongSettings(mood: .romantic, genre: genre, instruments: [.pad], seed: 123))
+            let b = Composer.makePlan(SongSettings(mood: .romantic, genre: genre, instruments: fullBand,
+                                                   vocals: [.choir], seed: 123))
+            XCTAssertEqual(a.fingerprint, b.fingerprint, "\(genre)")
+            XCTAssertEqual(a.recipe, b.recipe, "\(genre)")
+            XCTAssertEqual(a.hook.map { $0.offset }, b.hook.map { $0.offset })
+            XCTAssertEqual(a.verseHook.map { $0.step }, b.verseHook.map { $0.step })
+        }
+    }
+
+    func testMelodiesStayInRangeAndEndOnAChordTone() {
+        for seed in 1...100 {
+            for mood in [Mood.uplifting, .melancholic, .energetic, .introspective] {
+                let s = SongSettings(mood: mood, genre: Genre.allCases[seed % Genre.allCases.count], seed: UInt64(seed))
+                let plan = Composer.makePlan(s)
+                for motif in [plan.hook, plan.hookAlt, plan.verseHook, plan.verseHookAlt] {
+                    XCTAssertGreaterThanOrEqual(motif.count, 2)
+                    var lastStep = -1
+                    for n in motif {
+                        XCTAssertGreaterThan(n.step, lastStep, "notes must be in order")
+                        XCTAssertLessThan(n.step, 32)
+                        XCTAssertGreaterThanOrEqual(n.len, 1)
+                        XCTAssertLessThanOrEqual(n.step + n.len, 33)
+                        XCTAssertGreaterThanOrEqual(n.offset, -6)
+                        XCTAssertLessThanOrEqual(n.offset, 12)
+                        lastStep = n.step
+                    }
+                }
+            }
+        }
+    }
+
+    func testTheKeyChangeLiftsTheLastChorusAndTheOutro() {
+        var found = 0
+        for seed in 1...300 {
+            let s = SongSettings(tempo: 100, mood: .uplifting, genre: .pop, instruments: [.pad, .drums],
+                                 lengthSeconds: 180, seed: UInt64(seed))
+            let plan = Composer.makePlan(s)
+            let lift = plan.profile.keyLift
+            let chorusIdx = plan.sections.indices.filter { plan.sections[$0].kind == .chorus }
+            guard lift > 0, chorusIdx.count >= 2 else { continue }
+            found += 1
+            let last = chorusIdx[chorusIdx.count - 1]
+            for (i, sec) in plan.sections.enumerated() {
+                for chord in sec.progression {
+                    XCTAssertEqual(chord.shift, i >= last ? lift : 0, "seed \(seed) section \(i) \(sec.kind)")
+                }
+            }
+        }
+        XCTAssertGreaterThan(found, 5, "the key change never happened in 300 songs")
+    }
+
+    func testSongsEndOnTheHomeChordWhenTheyHaveAnOutro() {
+        for seed in 1...120 {
+            let genre = Genre.allCases[seed % Genre.allCases.count]
+            let mood = Mood.allCases[seed % Mood.allCases.count]
+            for length in [60.0, 120, 180] {
+                let s = SongSettings(tempo: genre.suggestedTempo, mood: mood, genre: genre, lengthSeconds: length,
+                                     seed: UInt64(seed))
+                let plan = Composer.makePlan(s)
+                guard let last = plan.sections.last, last.kind == .outro else { continue }
+                let finalChord = plan.chord(atBar: plan.totalBars - 1)
+                XCTAssertEqual(finalChord.rootDegree, 0, "seed \(seed) \(genre) \(mood) length \(length)")
+            }
+        }
+    }
+
+    func testEverySongLayoutFitsEveryLength() {
+        var names = Set<String>()
+        for genre in Genre.allCases {
+            for length in [60.0, 90, 120, 180] {
+                for tempo in [60.0, 90, 120, 200] {
+                    for seed in 1...6 {
+                        let s = SongSettings(tempo: tempo, mood: .chill, genre: genre, lengthSeconds: length,
+                                             seed: UInt64(seed))
+                        let plan = Composer.makePlan(s)
+                        names.insert(plan.templateName)
+                        var bar = 0
+                        for sec in plan.sections {
+                            XCTAssertEqual(sec.startBar, bar)
+                            XCTAssertGreaterThan(sec.bars, 0)
+                            XCTAssertEqual(sec.bars % 4, 0)
+                            XCTAssertFalse(sec.progression.isEmpty)
+                            bar += sec.bars
+                        }
+                        XCTAssertEqual(bar, plan.totalBars)
+                    }
+                }
+            }
+        }
+        XCTAssertGreaterThanOrEqual(names.count, 6, "only \(names) layouts were ever used")
+    }
+
+    func testArrangementsLetInstrumentsRest() {
+        // Across many songs, some instruments sit out some phrases, but the music never goes silent.
+        var rests = 0
+        for seed in 1...60 {
+            let s = SongSettings(mood: .happy, genre: .indietronica, instruments: fullBand, lengthSeconds: 120,
+                                 seed: UInt64(seed))
+            let plan = Composer.makePlan(s)
+            for phrase in 0..<(plan.totalBars / 4) {
+                var anyPlaying = false
+                for inst in fullBand {
+                    if plan.level(inst, bar: phrase * 4) > 0 { anyPlaying = true } else { rests += 1 }
+                }
+                XCTAssertTrue(anyPlaying, "seed \(seed) phrase \(phrase) is silent")
+            }
+        }
+        XCTAssertGreaterThan(rests, 100)
+    }
+
+    func testTitlesAreFriendly() {
+        var titles = Set<String>()
+        for (gi, genre) in Genre.allCases.enumerated() {
+            for (mi, mood) in Mood.allCases.enumerated() {
+                let t = Titles.make(genre: genre, mood: mood, seed: UInt64(12 + gi * 13 + mi))
+                XCTAssertTrue(t.contains("#"), t)
+                XCTAssertGreaterThan(t.count, 6)
+                titles.insert(t)
+            }
+        }
+        XCTAssertGreaterThan(titles.count, 100)
+        XCTAssertFalse(Titles.make(genre: nil, mood: .romantic, seed: 1).isEmpty)
+    }
+
+    // MARK: audio variety (measured, not guessed)
+
+    private struct Features {
+        var zcr: Double        // zero crossings per sample: brightness / noisiness
+        var lowShare: Double   // share of the energy below roughly 200 Hz
+        var onsets: Double     // note and drum onsets per second
+        var crest: Double      // peak divided by RMS
+        /// 16 log-spaced frequency bands (50 Hz to 16 kHz): energy in dB relative to the whole song.
+        var bands: [Double]
+    }
+
+    /// In-place radix-2 FFT (the size must be a power of two).
+    private func fft(_ re: inout [Double], _ im: inout [Double]) {
+        let n = re.count
+        var j = 0
+        for i in 1..<n {
+            var bit = n >> 1
+            while j & bit != 0 {
+                j ^= bit
+                bit >>= 1
+            }
+            j ^= bit
+            if i < j {
+                re.swapAt(i, j)
+                im.swapAt(i, j)
+            }
+        }
+        var len = 2
+        while len <= n {
+            let ang = -2 * Double.pi / Double(len)
+            let wr = cos(ang)
+            let wi = sin(ang)
+            var i = 0
+            while i < n {
+                var cr = 1.0
+                var ci = 0.0
+                let half = len / 2
+                for k in 0..<half {
+                    let ur = re[i + k]
+                    let ui = im[i + k]
+                    let xr = re[i + k + half]
+                    let xi = im[i + k + half]
+                    let vr = xr * cr - xi * ci
+                    let vi = xr * ci + xi * cr
+                    re[i + k] = ur + vr
+                    im[i + k] = ui + vi
+                    re[i + k + half] = ur - vr
+                    im[i + k + half] = ui - vi
+                    let ncr = cr * wr - ci * wi
+                    ci = cr * wi + ci * wr
+                    cr = ncr
+                }
+                i += len
+            }
+            len <<= 1
+        }
+    }
+
+    /// The average frequency profile of a song in 16 log-spaced bands (dB relative to the whole song).
+    private func bandProfile(_ s: RenderedSong) -> [Double] {
+        let size = 4096
+        let hop = 16384
+        var power = [Double](repeating: 0, count: size / 2)
+        var start = 0
+        while start + size <= s.frameCount {
+            var re = [Double](repeating: 0, count: size)
+            var im = [Double](repeating: 0, count: size)
+            for k in 0..<size {
+                let w = 0.5 - 0.5 * cos(2 * Double.pi * Double(k) / Double(size - 1))
+                re[k] = Double((s.left[start + k] + s.right[start + k]) * 0.5) * w
+            }
+            fft(&re, &im)
+            for b in 0..<(size / 2) { power[b] += re[b] * re[b] + im[b] * im[b] }
+            start += hop
+        }
+        let sr = Double(s.sampleRate)
+        var bands = [Double](repeating: 0, count: 16)
+        let lo = 50.0
+        let hi = 16000.0
+        for b in 0..<(size / 2) {
+            let f = Double(b) * sr / Double(size)
+            if f < lo || f >= hi { continue }
+            let idx = Int(16 * log(f / lo) / log(hi / lo))
+            bands[min(idx, 15)] += power[b]
+        }
+        let total = bands.reduce(0, +) + 1e-12
+        return bands.map { 10 * log10($0 / total + 1e-9) }
+    }
+
+    /// The average difference in dB between the frequency profiles of every pair of songs.
+    private func spectralDifference(_ all: [Features]) -> Double {
+        var sum = 0.0
+        var pairs = 0
+        for i in 0..<all.count {
+            for j in (i + 1)..<all.count {
+                var d = 0.0
+                for b in 0..<16 { d += abs(all[i].bands[b] - all[j].bands[b]) }
+                sum += d / 16
+                pairs += 1
+            }
+        }
+        return pairs > 0 ? sum / Double(pairs) : 0
+    }
+
+    private func features(_ s: RenderedSong) -> Features {
+        let n = s.frameCount
+        var crossings = 0
+        var prev: Float = 0
+        var total = 0.0
+        var low = 0.0
+        var lp: Float = 0
+        let a: Float = 1 - exp(-2 * Float.pi * 200 / Float(s.sampleRate))
+        let hop = 441
+        var env: [Double] = []
+        var acc = 0.0
+        for i in 0..<n {
+            let x = (s.left[i] + s.right[i]) * 0.5
+            if (x >= 0) != (prev >= 0) { crossings += 1 }
+            prev = x
+            lp += a * (x - lp)
+            total += Double(x * x)
+            low += Double(lp * lp)
+            acc += Double(x * x)
+            if (i + 1) % hop == 0 {
+                env.append(acc / Double(hop))
+                acc = 0
+            }
+        }
+        var onsets = 0
+        if env.count > 4 {
+            var mean = 0.0
+            for e in env { mean += e }
+            mean /= Double(env.count)
+            for i in 2..<env.count where env[i] > 2.2 * env[i - 2] && env[i] > 0.3 * mean && env[i - 1] <= env[i] {
+                onsets += 1
+            }
+        }
+        let seconds = Double(n) / Double(s.sampleRate)
+        return Features(zcr: Double(crossings) / Double(max(n, 1)),
+                        lowShare: low / max(total, 1e-12),
+                        onsets: Double(onsets) / seconds,
+                        crest: Double(peak(s)) / max(rms(s), 1e-9),
+                        bands: bandProfile(s))
+    }
+
+    private func spread(_ values: [Double]) -> Double {
+        guard let lo = values.min(), let hi = values.max() else { return 0 }
+        let mean = values.reduce(0, +) / Double(values.count)
+        return (hi - lo) / max(abs(mean), 1e-9)
+    }
+
+    func testSameSettingsGiveAudiblyDifferentSongs() {
+        // Ten songs with identical settings except the seed. Their measured character must differ.
+        var all: [Features] = []
+        for seed in 1...10 {
+            let s = SongSettings(tempo: 112, mood: .uplifting, genre: .pop, instruments: fullBand,
+                                 vocals: [.femaleAah], lengthSeconds: 60, seed: UInt64(seed))
+            all.append(features(render(s)))
+        }
+        let zcr = spread(all.map { $0.zcr })
+        let low = spread(all.map { $0.lowShare })
+        let onsets = spread(all.map { $0.onsets })
+        let crest = spread(all.map { $0.crest })
+        print("VARIETY same settings, 10 seeds: spread zcr \(zcr) low \(low) onsets \(onsets) crest \(crest)")
+        print("SPECTRAL same settings, 10 seeds: average difference between two songs = \(spectralDifference(all)) dB")
+        XCTAssertGreaterThan(zcr, 0.15, "brightness barely changes between seeds")
+        XCTAssertGreaterThan(low, 0.15, "bass weight barely changes between seeds")
+        XCTAssertGreaterThan(onsets, 0.15, "busyness barely changes between seeds")
+    }
+
+    func testGenresSoundDifferentFromEachOther() {
+        var table: [(String, Features)] = []
+        for genre in Genre.allCases {
+            let s = SongSettings(tempo: genre.suggestedTempo, mood: .uplifting, genre: genre, instruments: fullBand,
+                                 vocals: [], lengthSeconds: 60, seed: 21)
+            table.append((genre.title, features(render(s))))
+        }
+        for (name, f) in table {
+            let label = name.padding(toLength: 13, withPad: " ", startingAt: 0)
+            print("GENRE \(label) zcr \(String(format: "%.4f", f.zcr)) low \(String(format: "%.3f", f.lowShare)) onsets/s \(String(format: "%.2f", f.onsets)) crest \(String(format: "%.2f", f.crest))")
+        }
+        print("SPECTRAL 11 genres: average difference between two songs = \(spectralDifference(table.map { $0.1 })) dB")
+        XCTAssertGreaterThan(spread(table.map { $0.1.zcr }), 0.4, "genres do not differ in brightness")
+        XCTAssertGreaterThan(spread(table.map { $0.1.lowShare }), 0.3, "genres do not differ in bass weight")
+        XCTAssertGreaterThan(spread(table.map { $0.1.onsets }), 0.4, "genres do not differ in busyness")
+    }
+
+    func testAmbientIsQuieterAndSofterThanEDM() {
+        let ambient = SongSettings(tempo: 70, mood: .introspective, genre: .ambient, instruments: fullBand,
+                                   lengthSeconds: 60, seed: 8)
+        let edm = SongSettings(tempo: 128, mood: .energetic, genre: .edm, instruments: fullBand,
+                               lengthSeconds: 60, seed: 8)
+        let a = features(render(ambient))
+        let e = features(render(edm))
+        print("AMBIENT \(a) EDM \(e)")
+        // Measured on GitHub (first run): EDM 3.1 note hits a second, ambient 2.1 with the same full band.
+        XCTAssertGreaterThan(e.onsets, a.onsets * 1.2, "EDM should be busier than ambient")
+        XCTAssertGreaterThan(a.crest, e.crest, "ambient should keep more dynamics than EDM")
+    }
+
+    func testMoodsSoundDifferentFromEachOther() {
+        // The same song settings with each of the 13 moods (no genre): the mood alone must change the sound.
+        var all: [Features] = []
+        for mood in Mood.allCases {
+            let s = SongSettings(tempo: mood.suggestedTempo, mood: mood, genre: nil, instruments: fullBand,
+                                 vocals: [], lengthSeconds: 60, seed: 21)
+            all.append(features(render(s)))
+        }
+        print("SPECTRAL 13 moods: average difference between two songs = \(spectralDifference(all)) dB")
+        print("VARIETY 13 moods: spread zcr \(spread(all.map { $0.zcr })) low \(spread(all.map { $0.lowShare })) onsets \(spread(all.map { $0.onsets })) crest \(spread(all.map { $0.crest }))")
     }
 }

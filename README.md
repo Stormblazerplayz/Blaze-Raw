@@ -1,6 +1,6 @@
 # Blaze Raw 🔥🎧
 
-An iPhone app that **makes its own music**. Pick a tempo, a mood, instruments and vocals, hit **Generate**, and get a brand-new song that is **at least one minute long** (up to three minutes). Songs are saved as WAV files you can share.
+An iPhone app that **makes its own music**. Pick a genre, a mood, a tempo, instruments and vocals, hit **Generate**, and get a brand-new song that is **at least one minute long** (up to three minutes). Songs are saved as WAV files you can share. Every song gets its own random recipe, so even the same settings give a different song each time (see [Why songs differ](#why-songs-differ)).
 
 It has an **Aloboi-style** preset, inspired by the public tags of Aloboi's *Intermodulation* (electronic, house, downtempo, vocal; gritty saw synths and just-intonation tuning). It makes new music in that spirit. It does **not** copy or sample any real song.
 
@@ -12,16 +12,17 @@ It has an **Aloboi-style** preset, inspired by the public tags of Aloboi's *Inte
 
 | Feature | Details |
 |---|---|
-| **Tempo** | 60–200 BPM slider, plus **Tap tempo** (tap along with any song to copy its speed) and a "use this mood's tempo" shortcut |
-| **Mood** | Dark, Happy, Chill, Energetic, Sad, Dreamy, Epic, Raw (each changes the scale, chords, beat and sound) |
+| **Genre** | Electronic, Synthpop, Pop, Chillwave, Downtempo, Ambient, Dream Pop, Indietronica, Lo-fi, Nu-Disco, EDM, or **Any** (each genre has its own tempo range, drum grooves, bass lines, chords, sounds and song layout) |
+| **Mood** | Relaxed, Introspective, Melancholic, Romantic, Uplifting, Dark, Happy, Chill, Energetic, Sad, Dreamy, Epic, Raw (each changes the scale, chords and feel) |
+| **Tempo** | 60–200 BPM slider, plus **Tap tempo** (tap along with any song to copy its speed) and a "use this genre's tempo" shortcut. Until you move the slider yourself, the tempo follows your genre and mood, and 🎲 *New variation* also picks a new tempo inside the genre's range |
 | **Instruments** (pick any number) | Drums, Sub Bass, Growl Bass, Synth Pad, Lead Synth, E-Piano, Pluck, Guitar, Strings, Bells, Arpeggio |
 | **Vocals** (pick any number) | Female Aah, Male Ooh, Choir, Vocal Chops, Robot Voice, Whisper, Duet (wordless synthesized voices) |
-| **Style presets** | Aloboi-style, Lo-fi Chill, Dark Techno, Happy Pop, Epic Movie, Dreamy Ambient, Raw Bass |
+| **Style presets** (14) | Aloboi-style, Lo-fi Chill, Dark Techno, Happy Pop, Epic Movie, Dreamy Ambient, Raw Bass, Neon Synthpop, Disco Night, Beach Haze, Dream Pop, Indie Sparkle, Festival Drop, Slow Groove |
 | **Length** | 1:00, 1:30, 2:00, 2:30 or 3:00. A song is **never shorter than one minute** |
 | **Key, energy, grit** | Pick a key (or Auto), how busy it is, and how crunchy/distorted the synths are |
 | **Just intonation** | Pure-ratio tuning (3:2 fifths, 5:4 thirds) for a smooth, slightly unreal sound |
-| **Variations** | 🎲 *New variation* (same settings, new song), 🎰 *Surprise me* (random everything) |
-| **Library** | Play, scrub, share, delete, or swipe to **Remix** an old song's settings |
+| **Variations** | 🎲 *New variation* (same genre and mood, a brand-new song), 🎰 *Surprise me* (random genre, mood and everything else) |
+| **Library** | Play, scrub, share, delete, or swipe to **Remix** an old song's settings (genre included) |
 | **Saving** | WAV files appear in the Files app: *On My iPhone → Blaze Raw* |
 
 ### Do I need to download a model?
@@ -30,12 +31,29 @@ No. The songs are made **on the phone by a built-in music engine** (no internet,
 
 ### How the engine makes a song
 
-1. **Plan** – picks a key, a scale for the mood, two chord progressions, and splits the song into intro / verse / chorus / breakdown / outro (always enough bars to last at least a minute at your tempo).
-2. **Write** – makes a catchy melody "hook" that follows the chords, then writes a part for every instrument you chose (bass lines, pads, arps, guitar strums, piano chords, drum patterns with fills and risers, vocal lines).
-3. **Play** – every sound is synthesized from scratch: band-limited saw/square oscillators, FM electric piano and bells, a Karplus-Strong guitar string, a distorted *growl bass* with a wobbling filter and ring-modulation (the "intermodulation" sound), drum samples built from noise and sine sweeps, and a formant voice synth that sings vowels.
-4. **Mix** – sidechain "pumping" from the kick, stereo reverb, ping-pong echo, then loudness and a soft limiter so it never clips.
+1. **Recipe** – from your genre, mood and the variation number, the engine makes a long list of choices for this one song (scale, chord loops, drum groove, bass line, melody shape, song layout, the sound of every instrument, effects). See [Why songs differ](#why-songs-differ).
+2. **Plan** – picks a key, writes the chord loops, and splits the song into sections such as intro / verse / chorus / breakdown / outro (always enough bars to last at least a minute at your tempo).
+3. **Write** – makes a catchy melody "hook" that follows the chords, then writes a part for every instrument you chose (bass lines, pads, arps, guitar strums, piano chords, drum patterns with fills and risers, vocal lines).
+4. **Play** – every sound is synthesized from scratch: band-limited saw/square oscillators, FM electric piano and bells, a Karplus-Strong guitar string, a distorted *growl bass* with a wobbling filter and ring-modulation (the "intermodulation" sound), drum samples built from noise and sine sweeps, and a formant voice synth that sings vowels.
+5. **Mix** – sidechain "pumping" from the kick, stereo reverb, ping-pong echo, then loudness and a soft limiter so it never clips.
 
 The same settings and the same variation number always give the same song.
+
+### Why songs differ
+
+Every time you press **Generate**, the engine first makes a **recipe**: a long list of choices for that one song. The **genre** picks the rules (its usual tempo, drum grooves, bass lines, chords, sounds and song layout). The **mood** tilts them (which scales are likely, how bright, how busy, how slow). The **variation number** (the seed) then makes the actual choices, so two songs with the same genre and mood still come out different.
+
+| Part of the song | What can change from song to song |
+|---|---|
+| **Key and scale** | Major, minor, Dorian, Lydian, Mixolydian, Phrygian, harmonic and melodic minor |
+| **Chords** | The chord loop for the verse, the chorus and the breakdown, how often the chord changes, and how rich the chords are (plain triads, 7ths, 9ths, add9, sus chords, 6ths) |
+| **Drums** | The drum style of the genre, one of several grooves inside it, and how much it swings |
+| **Bass line** | Steady, funky, walking, offbeat, 808-style or a long drone |
+| **Melody** | Its rhythm, its shape (rising, falling, arch, wave) and how the second bar answers the first |
+| **Song layout** | Which sections come in which order and how long they are, which instruments play in which section, and sometimes a key change |
+| **Sounds** | What each instrument sounds like, the effects (reverb, echo) and the final mastering |
+
+`blazecli` prints a song's genre and its recipe on a second line, so you can see why two songs differ. Pick a genre with `--genre` (and `blazecli --list` shows every genre, mood and preset).
 
 ---
 
@@ -46,11 +64,11 @@ App/BlazeRaw/             SwiftUI iPhone app (screens, player, library)
 Packages/BlazeEngine/     The music engine (pure Swift, no Apple-only code)
   Sources/BlazeEngine/      Composer, Drums, Synths, Vocals, Renderer, WAV ...
   Sources/blazecli/         Command-line tool: make a song on any computer
-  Tests/                    Unit tests (length >= 60 s, all moods/instruments/vocals ...)
+  Tests/                    Unit tests (length >= 60 s, all genres/moods/instruments/vocals ...)
 Config/Info.plist         App settings (audio in background, Files access, no-encryption flag)
 project.yml               XcodeGen description (the .xcodeproj is generated, not stored)
 .github/workflows/ios.yml GitHub robot: test, build, sign, upload to TestFlight
-scripts/                  set-github-secrets.sh, make_icon.py
+scripts/                  set-github-secrets.sh, make_icon.py, render-samples.sh (makes ~60 sample songs with blazecli)
 ```
 
 ## Try the engine on a computer (no iPhone needed)
@@ -66,7 +84,15 @@ swift run -c release blazecli --preset aloboi --seed 7 --out aloboi.wav
 swift run -c release blazecli --mood chill --tempo 80 --instruments drums,piano,pad,guitar --vocals choir --length 90 --out chill.wav
 ```
 
-Run `blazecli --help` for all options. Run the tests with:
+Pick a genre (and a mood). Without `--tempo` a tempo that fits the genre and mood is chosen, and a different `--seed` gives a different song every time:
+
+```bash
+swift run -c release blazecli --genre nuDisco --mood uplifting --instruments drums,subBass,guitar,piano,strings --seed 3 --out disco.wav
+swift run -c release blazecli --genre ambient --mood introspective --instruments pad,bells,piano --seed 5 --length 120 --out ambient.wav
+swift run -c release blazecli --genre lofi --mood melancholic --instruments drums,piano,subBass,guitar --seed 8 --out lofi.wav
+```
+
+Run `blazecli --help` for all options and `blazecli --list` for every genre, mood, preset, instrument and vocal. Run the tests with:
 
 ```bash
 swift test -c release -Xswiftc -enable-testing
@@ -187,7 +213,7 @@ GitHub repo → **Actions** → **iOS build and TestFlight** → **Run workflow*
 4. **More export options:** M4A/MP3, separate stems per instrument, and MIDI to open in GarageBand.
 5. **Lock-screen controls**, Now Playing info and AirPlay buttons.
 6. **Song structure editor:** drag to rearrange verse / chorus / breakdown and set how long each is.
-7. **More sounds:** sampled drum kits, saxophone, choir "words", more moods and presets (Trap, Drum & Bass, Synthwave, Jazz).
+7. **More sounds:** sampled drum kits, saxophone, choir "words", more genres and presets (Trap, Drum & Bass, Synthwave, Jazz, House).
 8. **Visualizer videos** to share on social apps.
 9. **iPad layout, widgets and haptics**; iCloud sync of your library.
 10. **Live preview:** start playing while the rest of the song is still rendering.
@@ -195,6 +221,7 @@ GitHub repo → **Actions** → **iOS build and TestFlight** → **Run workflow*
 ## Honest notes
 
 * I could not listen to the original *Intermodulation Demo*, and I did not copy it. The Aloboi-style preset is built from public information about the track and the artist, and its tempo is a starting guess. Use **Tap tempo** to match the real song.
-* The engine is checked by automated tests and by analysing the rendered audio (length, level, no clipping, tempo accuracy, vowel formants). It has not been judged by ears, so tweak the grit, energy and instruments until it sounds right to you.
+* The engine is checked by automated tests and by analysing the rendered audio (length, level, no clipping, vowel formants, and how much songs with the same settings differ in brightness, bass weight and busyness). It has not been judged by ears, so tweak the grit, energy and instruments until it sounds right to you.
+* The genres are built from general musical knowledge of each style (a typical tempo range, drum feel, bass line, chords and sounds). They are not copied from any song or artist, and, like everything else here, they have not been judged by ears yet. If a genre does not sound right to you, that is useful feedback for the next version.
 * The iPhone app is built by the GitHub workflow on a real Mac runner (Xcode 26, iOS 26 SDK) on every push, including the unsigned Release archive and checks of the app package (bundle id, icon without transparency, encryption flag). The only part that has **not** been run is the signing and upload, because it needs your Apple account (see above).
 * This repository is public. That is fine: GitHub secrets are encrypted and are never given to pull requests from other people's forks. Still, never commit your `.p8` key (`.gitignore` blocks it).
