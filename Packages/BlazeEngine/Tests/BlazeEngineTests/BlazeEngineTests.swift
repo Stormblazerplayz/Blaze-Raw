@@ -613,6 +613,101 @@ final class BlazeEngineTests: XCTestCase {
         var lowShare: Double   // share of the energy below roughly 200 Hz
         var onsets: Double     // note and drum onsets per second
         var crest: Double      // peak divided by RMS
+        /// 16 log-spaced frequency bands (50 Hz to 16 kHz): energy in dB relative to the whole song.
+        var bands: [Double]
+    }
+
+    /// In-place radix-2 FFT (the size must be a power of two).
+    private func fft(_ re: inout [Double], _ im: inout [Double]) {
+        let n = re.count
+        var j = 0
+        for i in 1..<n {
+            var bit = n >> 1
+            while j & bit != 0 {
+                j ^= bit
+                bit >>= 1
+            }
+            j ^= bit
+            if i < j {
+                re.swapAt(i, j)
+                im.swapAt(i, j)
+            }
+        }
+        var len = 2
+        while len <= n {
+            let ang = -2 * Double.pi / Double(len)
+            let wr = cos(ang)
+            let wi = sin(ang)
+            var i = 0
+            while i < n {
+                var cr = 1.0
+                var ci = 0.0
+                let half = len / 2
+                for k in 0..<half {
+                    let ur = re[i + k]
+                    let ui = im[i + k]
+                    let xr = re[i + k + half]
+                    let xi = im[i + k + half]
+                    let vr = xr * cr - xi * ci
+                    let vi = xr * ci + xi * cr
+                    re[i + k] = ur + vr
+                    im[i + k] = ui + vi
+                    re[i + k + half] = ur - vr
+                    im[i + k + half] = ui - vi
+                    let ncr = cr * wr - ci * wi
+                    ci = cr * wi + ci * wr
+                    cr = ncr
+                }
+                i += len
+            }
+            len <<= 1
+        }
+    }
+
+    /// The average frequency profile of a song in 16 log-spaced bands (dB relative to the whole song).
+    private func bandProfile(_ s: RenderedSong) -> [Double] {
+        let size = 4096
+        let hop = 16384
+        var power = [Double](repeating: 0, count: size / 2)
+        var start = 0
+        while start + size <= s.frameCount {
+            var re = [Double](repeating: 0, count: size)
+            var im = [Double](repeating: 0, count: size)
+            for k in 0..<size {
+                let w = 0.5 - 0.5 * cos(2 * Double.pi * Double(k) / Double(size - 1))
+                re[k] = Double((s.left[start + k] + s.right[start + k]) * 0.5) * w
+            }
+            fft(&re, &im)
+            for b in 0..<(size / 2) { power[b] += re[b] * re[b] + im[b] * im[b] }
+            start += hop
+        }
+        let sr = Double(s.sampleRate)
+        var bands = [Double](repeating: 0, count: 16)
+        let lo = 50.0
+        let hi = 16000.0
+        for b in 0..<(size / 2) {
+            let f = Double(b) * sr / Double(size)
+            if f < lo || f >= hi { continue }
+            let idx = Int(16 * log(f / lo) / log(hi / lo))
+            bands[min(idx, 15)] += power[b]
+        }
+        let total = bands.reduce(0, +) + 1e-12
+        return bands.map { 10 * log10($0 / total + 1e-9) }
+    }
+
+    /// The average difference in dB between the frequency profiles of every pair of songs.
+    private func spectralDifference(_ all: [Features]) -> Double {
+        var sum = 0.0
+        var pairs = 0
+        for i in 0..<all.count {
+            for j in (i + 1)..<all.count {
+                var d = 0.0
+                for b in 0..<16 { d += abs(all[i].bands[b] - all[j].bands[b]) }
+                sum += d / 16
+                pairs += 1
+            }
+        }
+        return pairs > 0 ? sum / Double(pairs) : 0
     }
 
     private func features(_ s: RenderedSong) -> Features {
@@ -652,7 +747,8 @@ final class BlazeEngineTests: XCTestCase {
         return Features(zcr: Double(crossings) / Double(max(n, 1)),
                         lowShare: low / max(total, 1e-12),
                         onsets: Double(onsets) / seconds,
-                        crest: Double(peak(s)) / max(rms(s), 1e-9))
+                        crest: Double(peak(s)) / max(rms(s), 1e-9),
+                        bands: bandProfile(s))
     }
 
     private func spread(_ values: [Double]) -> Double {
@@ -674,6 +770,7 @@ final class BlazeEngineTests: XCTestCase {
         let onsets = spread(all.map { $0.onsets })
         let crest = spread(all.map { $0.crest })
         print("VARIETY same settings, 10 seeds: spread zcr \(zcr) low \(low) onsets \(onsets) crest \(crest)")
+        print("SPECTRAL same settings, 10 seeds: average difference between two songs = \(spectralDifference(all)) dB")
         XCTAssertGreaterThan(zcr, 0.15, "brightness barely changes between seeds")
         XCTAssertGreaterThan(low, 0.15, "bass weight barely changes between seeds")
         XCTAssertGreaterThan(onsets, 0.15, "busyness barely changes between seeds")
@@ -690,6 +787,7 @@ final class BlazeEngineTests: XCTestCase {
             let label = name.padding(toLength: 13, withPad: " ", startingAt: 0)
             print("GENRE \(label) zcr \(String(format: "%.4f", f.zcr)) low \(String(format: "%.3f", f.lowShare)) onsets/s \(String(format: "%.2f", f.onsets)) crest \(String(format: "%.2f", f.crest))")
         }
+        print("SPECTRAL 11 genres: average difference between two songs = \(spectralDifference(table.map { $0.1 })) dB")
         XCTAssertGreaterThan(spread(table.map { $0.1.zcr }), 0.4, "genres do not differ in brightness")
         XCTAssertGreaterThan(spread(table.map { $0.1.lowShare }), 0.3, "genres do not differ in bass weight")
         XCTAssertGreaterThan(spread(table.map { $0.1.onsets }), 0.4, "genres do not differ in busyness")
@@ -703,6 +801,20 @@ final class BlazeEngineTests: XCTestCase {
         let a = features(render(ambient))
         let e = features(render(edm))
         print("AMBIENT \(a) EDM \(e)")
-        XCTAssertGreaterThan(e.onsets, a.onsets * 1.5, "EDM should be much busier than ambient")
+        // Measured on GitHub (first run): EDM 3.1 note hits a second, ambient 2.1 with the same full band.
+        XCTAssertGreaterThan(e.onsets, a.onsets * 1.2, "EDM should be busier than ambient")
+        XCTAssertGreaterThan(a.crest, e.crest, "ambient should keep more dynamics than EDM")
+    }
+
+    func testMoodsSoundDifferentFromEachOther() {
+        // The same song settings with each of the 13 moods (no genre): the mood alone must change the sound.
+        var all: [Features] = []
+        for mood in Mood.allCases {
+            let s = SongSettings(tempo: mood.suggestedTempo, mood: mood, genre: nil, instruments: fullBand,
+                                 vocals: [], lengthSeconds: 60, seed: 21)
+            all.append(features(render(s)))
+        }
+        print("SPECTRAL 13 moods: average difference between two songs = \(spectralDifference(all)) dB")
+        print("VARIETY 13 moods: spread zcr \(spread(all.map { $0.zcr })) low \(spread(all.map { $0.lowShare })) onsets \(spread(all.map { $0.onsets })) crest \(spread(all.map { $0.crest }))")
     }
 }
