@@ -1,0 +1,41 @@
+# XcodeGen project description. The GitHub workflow runs `xcodegen generate` to turn this
+# into BlazeRaw.xcodeproj, so there is no .xcodeproj file to keep in git.
+name: BlazeRaw
+
+options:
+  bundleIdPrefix: com.stormblazerplayz
+  deploymentTarget:
+    iOS: "16.0"
+  createIntermediateGroups: true
+  developmentLanguage: en
+
+settings:
+  base:
+    SWIFT_VERSION: "5.0"
+    MARKETING_VERSION: "1.0.0"
+    CURRENT_PROJECT_VERSION: "1"
+    CODE_SIGN_STYLE: Automatic
+
+packages:
+  BlazeEngine:
+    path: Packages/BlazeEngine
+
+targets:
+  BlazeRaw:
+    type: application
+    platform: iOS
+    sources:
+      - path: App/BlazeRaw
+    dependencies:
+      - package: BlazeEngine
+        product: BlazeEngine
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.stormblazerplayz.blazeraw
+        PRODUCT_NAME: BlazeRaw
+        INFOPLIST_FILE: Config/Info.plist
+        GENERATE_INFOPLIST_FILE: NO
+        ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
+        ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME: AccentColor
+        TARGETED_DEVICE_FAMILY: "1,2"
+        ENABLE_PREVIEWS: YES
