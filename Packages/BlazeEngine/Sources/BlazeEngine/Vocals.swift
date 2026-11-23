@@ -112,7 +112,7 @@ enum VoiceSynth {
 
         for (ei, ev) in events.enumerated() {
             let spec = ev.spec
-            let f0 = Float(ctx.tuning.frequency(semis: ev.note.semis))
+            let f0 = Float(ctx.tuning.frequency(semis: ev.note.semis, beat: ev.note.beat))
             if !spec.whisper && (f0 < 55 || f0 > 1500) { continue }
             let start = max(0, ctx.frame(beat: ev.note.beat))
             let durS = Float(ev.note.dur * ctx.spb)

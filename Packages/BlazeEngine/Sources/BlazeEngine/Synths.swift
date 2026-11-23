@@ -19,9 +19,22 @@ enum Synths {
         let sr = ctx.sr
         let invSr = 1 / sr
         let nv = min(max(patch.voices, 1), 5)
-        let stereo = nv > 1 && patch.spread > 0.01
+        // The Aloboi Synth sample (if the patch uses it) is played by two readers, one panned left and
+        // one right, each following the lowest and the highest unison voice's pitch.
+        let sampler: AloboiSample? = patch.sample > 0.001 ? AloboiSample.shared : nil
+        let stereo = (nv > 1 || sampler != nil) && patch.spread > 0.01
         // Roughly constant loudness whatever the number of voices (voices add up like random signals).
         let norm: Float = 0.6 / Float(nv).squareRoot()
+        let oscGain = patch.oscLevel
+        let sampleWidth = clampf(patch.spread, 0, 1)
+        let angA = (1 - sampleWidth) * 0.25 * Float.pi
+        let angB = (1 + sampleWidth) * 0.25 * Float.pi
+        let sampleLevel = patch.sample * 0.5 * 1.4142135
+        let sAL = cos(angA) * sampleLevel
+        let sAR = sin(angA) * sampleLevel
+        let sBL = cos(angB) * sampleLevel
+        let sBR = sin(angB) * sampleLevel
+        let unstable = patch.unstable
 
         // Per-voice constants: pitch ratio and stereo gains, from -1 (lowest) to +1 (highest) voice.
         var voiceRatio = [Float](repeating: 1, count: nv)
@@ -52,7 +65,7 @@ enum Synths {
 
         for (ni, n) in notes.enumerated() {
             if n.vel <= 0.001 { continue }
-            let f = Float(ctx.tuning.frequency(semis: n.semis))
+            let f = Float(ctx.tuning.frequency(semis: n.semis, beat: n.beat))
             if !(f > 15) || f > sr * 0.22 { continue }
             let start = max(0, ctx.frame(beat: n.beat))
             if start >= ctx.frames { continue }
@@ -82,6 +95,16 @@ enum Synths {
                 ph[v] = Float((v * 37 + ni * 53) % 100) / 100
                 dts[v] = f * voiceRatio[v] * invSr
             }
+            // Sample readers: source frames per output frame for the note, and a read position for each.
+            let sampleStep: Double = sampler?.increment(forHz: f, sr: sr) ?? 0
+            let toSample: Double = sampleStep / Double(f * invSr)
+            var posA: Double = 0
+            var posB: Double = 0
+            var stepA = sampleStep
+            var stepB = sampleStep
+            // Unstable oscillators: a slowly wandering random pitch offset for every voice.
+            var wander = [Float](repeating: 0, count: nv)
+            var wanderNoise = Noise(seed: UInt32(truncatingIfNeeded: ni &* 7919 &+ 9001))
             let osc2On = patch.mix2 > 0.001 && f * patch.ratio2 < sr * 0.4
             let dt2 = f * patch.ratio2 * invSr
             var ph2 = Float((ni * 29) % 100) / 100
@@ -114,7 +137,17 @@ enum Synths {
                             let driftArg = twoPi * (0.19 + 0.07 * Float(v)) * tAbs + Float(v) * 1.7 + lfoPhase
                             m *= 1 + driftRatio * sin(driftArg)
                         }
+                        if unstable > 0.001 {
+                            // Smoothed white noise (about 2 Hz wide) is about 0.026 big, and one cent is a
+                            // pitch ratio change of 0.000578, so this wanders by roughly `unstable` cents.
+                            wander[v] += (wanderNoise.next() - wander[v]) * 0.004
+                            m *= 1 + 0.022 * unstable * wander[v]
+                        }
                         dts[v] = f * m * invSr
+                    }
+                    if sampler != nil {
+                        stepA = toSample * Double(dts[0])
+                        stepB = toSample * Double(dts[nv - 1])
                     }
                     if patch.pwmDepth > 0 {
                         pw = clampf(patch.pulseWidth + patch.pwmDepth * sin(twoPi * 0.4 * tAbs + lfoPhase), 0.1, 0.9)
@@ -136,10 +169,18 @@ enum Synths {
                 var l: Float = 0
                 var r: Float = 0
                 for v in 0..<nv {
-                    let s = oscSample(patch.wave, ph[v], dts[v], pw)
+                    let s = oscSample(patch.wave, ph[v], dts[v], pw) * oscGain
                     advance(&ph[v], dts[v])
                     l += s * gl[v]
                     r += s * gr[v]
+                }
+                if let sp = sampler {
+                    let a = sp.read(posA)
+                    let b = sp.read(posB)
+                    sp.advance(&posA, stepA)
+                    sp.advance(&posB, stepB)
+                    l += a * sAL + b * sBL
+                    r += a * sAR + b * sBR
                 }
                 if osc2On {
                     let s2 = oscSample(patch.wave2, ph2, dt2, patch.pulseWidth2) * patch.mix2 * 0.6
@@ -193,13 +234,14 @@ enum Synths {
         let drive = patch.drive + patch.gritDrive * ctx.grit
         let rel = max(patch.release, 0.03)
         let filtered = patch.kind == .saw || patch.kind == .square || patch.kind == .funk || patch.kind == .tri
+            || patch.kind == .reese
         let detuneRatio = centsRatio(patch.detune)
         let envDecay = max(patch.envDecay, 0.01)
         let fmDecay = max(patch.fmDecay, 0.02)
 
         for n in notes {
             if n.vel <= 0.001 { continue }
-            let f0 = Float(ctx.tuning.frequency(semis: n.semis))
+            let f0 = Float(ctx.tuning.frequency(semis: n.semis, beat: n.beat))
             if !(f0 > 15) || f0 > sr * 0.2 { continue }
             let start = max(0, ctx.frame(beat: n.beat))
             if start >= ctx.frames { continue }
@@ -209,12 +251,14 @@ enum Synths {
 
             var p1: Float = 0
             var p2: Float = 0.37
+            var p3: Float = 0.71
             var pSub: Float = 0
             var pMod: Float = 0
             var filt = SVF(cutoff: max(patch.cutoff, 40), q: patch.q, sr: sr)
             var pitch: Float = 1
             var dt1 = f0 * invSr
             var dt2 = dt1 * detuneRatio
+            var dt3 = dt1 / detuneRatio
             var fmIdx = patch.fmIndex
             let envAmt = patch.envAmount * (0.4 + 0.6 * n.vel)
 
@@ -229,6 +273,15 @@ enum Synths {
                     }
                     dt1 = f0 * pitch * invSr
                     dt2 = dt1 * detuneRatio
+                    dt3 = dt1 / detuneRatio
+                    if patch.kind == .reese {
+                        // The detune breathes in and out (about every 5 seconds, locked to the song's clock
+                        // so every note shares the same movement): this is the Reese "phasing" sound.
+                        let tSong = Float(i) * invSr
+                        let breathing = centsRatio(patch.detune * (1 + 0.5 * sin(twoPi * 0.19 * tSong)))
+                        dt2 = dt1 * breathing
+                        dt3 = dt1 / breathing
+                    }
                     if filtered {
                         filt.set(cutoff: patch.cutoff + envAmt * exp(-t / envDecay), q: patch.q, sr: sr)
                     }
@@ -261,6 +314,11 @@ enum Synths {
                 case .tri:
                     s = 4 * abs(p1 - 0.5) - 1
                     advance(&p1, dt1)
+                case .reese:
+                    s = (sawBL(p1, dt1) + sawBL(p2, dt2) + sawBL(p3, dt3)) * 0.42
+                    advance(&p1, dt1)
+                    advance(&p2, dt2)
+                    advance(&p3, dt3)
                 }
                 if patch.sub > 0 {
                     s += patch.sub * sin(twoPi * pSub)
@@ -293,7 +351,7 @@ enum Synths {
 
         for n in notes {
             if n.vel <= 0.001 { continue }
-            let f = Float(ctx.tuning.frequency(semis: n.semis))
+            let f = Float(ctx.tuning.frequency(semis: n.semis, beat: n.beat))
             if !(f > 15) || f > sr * 0.2 { continue }
             let start = max(0, ctx.frame(beat: n.beat))
             if start >= ctx.frames { continue }
@@ -353,7 +411,7 @@ enum Synths {
 
         for (ni, n) in notes.enumerated() {
             if n.vel <= 0.001 { continue }
-            let f = Float(ctx.tuning.frequency(semis: n.semis))
+            let f = Float(ctx.tuning.frequency(semis: n.semis, beat: n.beat))
             if !(f > 20) || f > sr * 0.2 { continue }
             let start = max(0, ctx.frame(beat: n.beat))
             if start >= ctx.frames { continue }
@@ -423,7 +481,7 @@ enum Synths {
         let two = patch.detune > 0.01
         for (ni, n) in notes.enumerated() {
             if n.vel <= 0.001 { continue }
-            let f = Float(ctx.tuning.frequency(semis: n.semis))
+            let f = Float(ctx.tuning.frequency(semis: n.semis, beat: n.beat))
             if f < 40 || f > sr * 0.2 { continue }
             let start = max(0, ctx.frame(beat: n.beat))
             if start >= ctx.frames { continue }
@@ -514,7 +572,7 @@ enum Synths {
 
         for (ni, n) in notes.enumerated() {
             if n.vel <= 0.001 { continue }
-            let f = Float(ctx.tuning.frequency(semis: n.semis))
+            let f = Float(ctx.tuning.frequency(semis: n.semis, beat: n.beat))
             if !(f > 20) || f > sr * 0.2 { continue }
             let start = max(0, ctx.frame(beat: n.beat))
             if start >= ctx.frames { continue }

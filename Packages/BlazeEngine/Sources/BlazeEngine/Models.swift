@@ -264,6 +264,12 @@ public struct SongSettings: Codable, Equatable, Hashable, Sendable {
     public var grit: Double
     /// Tune the notes with pure "just intonation" ratios instead of piano tuning.
     public var justIntonation: Bool
+    /// "Alobend" tuning: every chord is bent into pure whole-number ratios above its own root (a pure major
+    /// third 5:4, a pure fifth 3:2, a pure seventh 7:4...), like a MIDI retuning tool does for a keyboard.
+    /// The chord roots follow just intonation, so this also switches `justIntonation` on.
+    public var alobend: Bool
+    /// The Aloboi sound: unstable oscillators, Reese basses, rich pads and the "Aloboi Synth" sample.
+    public var aloboiSound: Bool
     public var seed: UInt64
 
     public init(tempo: Double = 120,
@@ -276,6 +282,8 @@ public struct SongSettings: Codable, Equatable, Hashable, Sendable {
                 intensity: Double = 0.7,
                 grit: Double = 0.5,
                 justIntonation: Bool = false,
+                alobend: Bool = false,
+                aloboiSound: Bool = false,
                 seed: UInt64 = 1) {
         self.tempo = tempo
         self.mood = mood
@@ -287,7 +295,32 @@ public struct SongSettings: Codable, Equatable, Hashable, Sendable {
         self.intensity = intensity
         self.grit = grit
         self.justIntonation = justIntonation
+        self.alobend = alobend
+        self.aloboiSound = aloboiSound
         self.seed = seed
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case tempo, mood, genre, instruments, vocals, key, lengthSeconds, intensity, grit
+        case justIntonation, alobend, aloboiSound, seed
+    }
+
+    /// Reads songs saved by any older version of the app: a setting that is missing gets its default.
+    public init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        tempo = try c.decodeIfPresent(Double.self, forKey: .tempo) ?? 120
+        mood = try c.decodeIfPresent(Mood.self, forKey: .mood) ?? .dark
+        genre = try c.decodeIfPresent(Genre.self, forKey: .genre)
+        instruments = try c.decodeIfPresent(Set<InstrumentKind>.self, forKey: .instruments) ?? [.drums, .subBass, .pad, .arp]
+        vocals = try c.decodeIfPresent(Set<VocalStyle>.self, forKey: .vocals) ?? []
+        key = try c.decodeIfPresent(Int.self, forKey: .key)
+        lengthSeconds = try c.decodeIfPresent(Double.self, forKey: .lengthSeconds) ?? 90
+        intensity = try c.decodeIfPresent(Double.self, forKey: .intensity) ?? 0.7
+        grit = try c.decodeIfPresent(Double.self, forKey: .grit) ?? 0.5
+        justIntonation = try c.decodeIfPresent(Bool.self, forKey: .justIntonation) ?? false
+        alobend = try c.decodeIfPresent(Bool.self, forKey: .alobend) ?? false
+        aloboiSound = try c.decodeIfPresent(Bool.self, forKey: .aloboiSound) ?? false
+        seed = try c.decodeIfPresent(UInt64.self, forKey: .seed) ?? 1
     }
 
     /// The same settings, forced into safe ranges (so the engine can never crash on odd input).
@@ -354,7 +387,7 @@ public enum StylePreset: String, CaseIterable, Identifiable, Sendable {
 
     public var blurb: String {
         switch self {
-        case .aloboi: return "Gritty saw synths, pure-ratio tuning, house/downtempo beat and vocal chops."
+        case .aloboi: return "Unstable synths, Reese bass, rich pads, the Aloboi Synth sound and chords bent into pure ratios."
         case .lofiChill: return "Slow, warm e-piano, soft guitar and a lazy beat."
         case .darkTechno: return "Driving beat, growling bass and a robot voice."
         case .happyPop: return "Bright chords, strummed guitar and a sing-along duet."
@@ -374,13 +407,14 @@ public enum StylePreset: String, CaseIterable, Identifiable, Sendable {
     public func settings(seed: UInt64) -> SongSettings {
         switch self {
         case .aloboi:
-            // Based on the public tags of the track: electronic, house, downtempo, vocal.
-            // The artist is known for distorted saw synths and just intonation.
+            // Based on the public tags of the track: electronic, house, downtempo, vocal. The artist relies
+            // on MPE synths (Vital, Serum) for unstable oscillators, Reese basses and rich pads, and on a
+            // MIDI retuning tool (Alobend) that bends chords into pure just-intonation ratios.
             return SongSettings(tempo: 122, mood: .dark, genre: .electronic,
-                                instruments: [.drums, .subBass, .growlBass, .pad, .arp],
+                                instruments: [.drums, .subBass, .growlBass, .pad, .arp, .lead],
                                 vocals: [.vocalChops, .femaleAah],
                                 key: nil, lengthSeconds: 90, intensity: 0.75, grit: 0.75,
-                                justIntonation: true, seed: seed)
+                                justIntonation: true, alobend: true, aloboiSound: true, seed: seed)
         case .lofiChill:
             return SongSettings(tempo: 78, mood: .chill, genre: .lofi,
                                 instruments: [.drums, .piano, .subBass, .guitar, .pad],

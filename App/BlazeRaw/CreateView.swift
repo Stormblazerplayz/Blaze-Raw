@@ -225,15 +225,49 @@ struct CreateView: View {
                 Text("Grit (crunchy distortion): \(Int(model.settings.grit * 100))%")
                 Slider(value: model.bind(\.grit), in: 0...1)
             }
-            Toggle(isOn: model.bind(\.justIntonation)) {
+            VStack(alignment: .leading, spacing: 6) {
+                Text("Tuning")
+                Picker("Tuning", selection: tuningBinding) {
+                    Text("Piano").tag(0)
+                    Text("Just").tag(1)
+                    Text("Alobend").tag(2)
+                }
+                .pickerStyle(.segmented)
+                Text(tuningHint)
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
+            Toggle(isOn: model.bind(\.aloboiSound)) {
                 VStack(alignment: .leading, spacing: 2) {
-                    Text("Just intonation")
-                    Text("Pure-ratio tuning for a smooth, slightly unreal sound.")
+                    Text("Aloboi sound")
+                    Text("Unstable oscillators, Reese bass, rich pads and the Aloboi Synth sample.")
                         .font(.caption)
                         .foregroundStyle(.secondary)
                 }
             }
         }
+    }
+
+    /// 0 = piano tuning, 1 = just intonation, 2 = Alobend (every chord bent into pure ratios).
+    private var tuningBinding: Binding<Int> {
+        Binding(
+            get: { model.settings.alobend ? 2 : (model.settings.justIntonation ? 1 : 0) },
+            set: { newValue in
+                model.settings.justIntonation = newValue >= 1
+                model.settings.alobend = newValue == 2
+                model.selectedPreset = nil
+            }
+        )
+    }
+
+    private var tuningHint: String {
+        if model.settings.alobend {
+            return "Every chord is bent into pure ratios of its own, like the Alobend retuning tool: no beating, very smooth."
+        }
+        if model.settings.justIntonation {
+            return "Pure-ratio notes for a smooth, slightly unreal sound."
+        }
+        return "Normal piano tuning."
     }
 
     private var variationCard: some View {

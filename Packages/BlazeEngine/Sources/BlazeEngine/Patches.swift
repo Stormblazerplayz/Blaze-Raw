@@ -84,10 +84,20 @@ struct SynthPatch {
     var panAlt: Float = 0
     /// Extra loudness trim on top of the automatic balancing.
     var gain: Float = 1
+    /// Level of the "Aloboi Synth" sample (see AloboiSample.swift) mixed in with the oscillators, 0 = off.
+    /// The sample is played twice, detuned by `detune` cents either way and panned by `spread`.
+    var sample: Float = 0
+    /// Level of the oscillators themselves (1 = normal). A sample patch lowers it so the sample leads.
+    var oscLevel: Float = 1
+    /// "Unstable oscillator" amount: every unison voice wanders in pitch on its own by about this many
+    /// cents (slow random drift, a few times per second), like an analog oscillator that is not stable.
+    var unstable: Float = 0
 }
 
 enum BassKind: Int {
     case sine, saw, square, fm, e808, funk, tri
+    /// Three saws whose detune slowly breathes in and out: the phasing "Reese" bass of drum and bass.
+    case reese
 }
 
 struct BassPatch {
@@ -302,15 +312,39 @@ private func genreWeights(_ table: [Genre: [Double]], _ genre: Genre?) -> [Doubl
     return w
 }
 
+/// Weights for every character of an instrument: the old characters (from the genre's taste table) first,
+/// then the Aloboi characters. With the Aloboi sound on, the Aloboi characters win nearly always.
+private func characterWeights(_ table: [Genre: [Double]], _ genre: Genre?, oldCount: Int,
+                              extra: [Genre: [Double]], extraCount: Int, extraDefault: Double,
+                              aloboi: Bool) -> [Double] {
+    var old = genreWeights(table, genre)
+    while old.count < oldCount { old.append(1.0) }
+    if old.count > oldCount { old = Array(old.prefix(oldCount)) }
+    var new: [Double] = genre.flatMap { extra[$0] } ?? [Double](repeating: extraDefault, count: extraCount)
+    while new.count < extraCount { new.append(extraDefault) }
+    if aloboi {
+        old = old.map { $0 * 0.15 }
+        new = new.map { max($0, 0.5) * 6 }
+    }
+    return old + new
+}
+
 // MARK: - Character libraries
 
 enum PatchLibrary {
-    static let padCount = 8
+    // The first characters of every instrument are the ones the engine always had. The last ones (pads 8-10,
+    // leads 8-9, arp 8, sub bass 8-9) are the "Aloboi" sounds: unstable oscillators, the Aloboi Synth sample
+    // and Reese basses. They are common when a song uses the Aloboi sound and rare in a few genres otherwise.
+    static let oldPadCount = 8
+    static let oldLeadCount = 8
+    static let oldArpCount = 8
+    static let oldSubCount = 8
+    static let padCount = 11
     static let stringsCount = 7
-    static let leadCount = 8
-    static let arpCount = 8
+    static let leadCount = 10
+    static let arpCount = 9
     static let pluckCount = 8
-    static let subCount = 8
+    static let subCount = 10
     static let growlCount = 6
     static let keysCount = 7
     static let guitarCount = 6
@@ -371,6 +405,32 @@ enum PatchLibrary {
             p.lfoRate = 0.15; p.lfoDepth = 0.35
             p.attack = 0.9; p.decay = 0.6; p.sustain = 0.85; p.release = 1.6
             p.spread = 1.0
+        case 8:
+            // Five saws that each wander out of tune by themselves, like a wobbly analog oscillator bank.
+            p.name = "unstable stack"
+            p.voices = 5; p.detune = 18; p.unstable = 9; p.sub = 0.15
+            p.cutoff = 700 + 2600 * b; p.q = 1.0
+            p.lfoRate = 0.06; p.lfoDepth = 0.4
+            p.attack = 0.9; p.decay = 0.8; p.sustain = 0.9; p.release = 1.8
+            p.spread = 1.0
+        case 9:
+            // The Aloboi Synth sample, played twice slightly out of tune, with a little saw underneath.
+            p.name = "Aloboi Synth"
+            p.sample = 1.0; p.oscLevel = 0.25
+            p.voices = 2; p.detune = 9; p.drift = 4; p.unstable = 4; p.sub = 0.12
+            p.cutoff = 700 + 2600 * b; p.q = 1.0
+            p.lfoRate = 0.07; p.lfoDepth = 0.3
+            p.attack = 0.7; p.decay = 0.6; p.sustain = 0.9; p.release = 1.6
+            p.spread = 0.9
+        case 10:
+            // A dark drone: gritty saws that drift apart, with a fifth on top and a thick sub.
+            p.name = "intermod drone"
+            p.voices = 3; p.detune = 14; p.unstable = 14; p.sub = 0.4
+            p.wave2 = .square; p.ratio2 = 1.5; p.mix2 = 0.25
+            p.cutoff = 300 + 1500 * b; p.q = 1.5; p.drive = 1.1; p.gritDrive = 1.2
+            p.lfoRate = 0.04; p.lfoDepth = 0.5
+            p.attack = 1.6; p.decay = 1.0; p.sustain = 0.9; p.release = 2.4
+            p.spread = 0.8
         default:
             // The original pad: three detuned saws under a slowly moving low-pass.
             p.name = "classic"
@@ -476,6 +536,22 @@ enum PatchLibrary {
             p.wave = .sine; p.wave2 = .sine; p.ratio2 = 3; p.mix2 = 0.1
             p.cutoff = 8000; p.vibrato = 0.012; p.vibratoRate = 5.5
             p.attack = 0.05; p.decay = 0.1; p.sustain = 0.85; p.release = 0.3
+        case 8:
+            // A lead whose oscillators wander out of tune, with grit.
+            p.name = "unstable saw"
+            p.voices = 3; p.detune = 10; p.unstable = 12
+            p.wave2 = .square; p.mix2 = 0.2; p.ratio2 = 1
+            p.cutoff = 1400 * bs; p.gritCut = 1500
+            p.envAmount = 3200; p.envDecay = 0.22; p.q = 1.5
+            p.vibrato = 0.006; p.vibratoRate = 5.2; p.drive = 1.2; p.gritDrive = 1.2
+            p.attack = 0.012; p.decay = 0.16; p.sustain = 0.8; p.release = 0.2; p.spread = 0.6
+        case 9:
+            p.name = "Aloboi Synth"
+            p.sample = 1.0; p.oscLevel = 0.2
+            p.voices = 2; p.detune = 7; p.unstable = 6
+            p.cutoff = 2600 * bs; p.envAmount = 2500; p.envDecay = 0.2; p.q = 1.2
+            p.vibrato = 0.006; p.vibratoRate = 5.2; p.drive = 1.1
+            p.attack = 0.01; p.decay = 0.2; p.sustain = 0.85; p.release = 0.3; p.spread = 0.7
         default:
             // The original lead: two saws plus a square, a filter that closes after each note, vibrato.
             p.name = "classic"
@@ -528,6 +604,13 @@ enum PatchLibrary {
             p.percTau = 0.14; p.cutoff = 400
             p.envAmount = 3500; p.envDecay = 0.08; p.velToEnv = 0.5; p.q = 4.0
             p.drive = 1.3; p.gritDrive = 1.0; p.panAlt = 0.3
+        case 8:
+            p.name = "Aloboi Synth"
+            p.sample = 1.0; p.oscLevel = 0.3
+            p.voices = 2; p.detune = 6; p.unstable = 5
+            p.percTau = 0.28; p.cutoff = 1500 * bs
+            p.envAmount = 3000; p.envDecay = 0.1; p.velToEnv = 0.8; p.q = 1.3
+            p.spread = 0.5; p.panAlt = 0.3
         default:
             // The original arp: two detuned saws through a quick-closing filter.
             p.name = "classic"
@@ -626,6 +709,16 @@ enum PatchLibrary {
             p.name = "warm sine"
             p.kind = .sine; p.harmonics = 0.35; p.drive = 1.2; p.gritDrive = 0.6
             p.attack = 0.01; p.decay = 0.12; p.sustain = 0.9; p.release = 0.15
+        case 8:
+            p.name = "reese"
+            p.kind = .reese; p.cutoff = 220; p.envAmount = 900; p.envDecay = 0.25; p.q = 1.4
+            p.drive = 1.3; p.gritDrive = 1.0; p.sub = 0.45; p.detune = 14
+            p.attack = 0.008; p.decay = 0.2; p.sustain = 0.9; p.release = 0.12
+        case 9:
+            p.name = "dirty reese"
+            p.kind = .reese; p.cutoff = 300; p.envAmount = 1800; p.envDecay = 0.35; p.q = 2.2
+            p.drive = 1.8; p.gritDrive = 1.8; p.sub = 0.35; p.detune = 24
+            p.attack = 0.006; p.decay = 0.25; p.sustain = 0.85; p.release = 0.12
         default:
             // The original sub: a clean low sine with a little warmth.
             p.name = "sine"
@@ -926,19 +1019,90 @@ private enum GenreTaste {
     ]
 }
 
+// How often the Aloboi characters (unstable oscillators, the Aloboi Synth sample, Reese basses) come up in
+// each genre when the Aloboi sound is NOT switched on. A genre that is missing uses the default.
+private enum AloboiTaste {
+    //                               unstable stack, Aloboi Synth, intermod drone
+    static let pad: [Genre: [Double]] = [
+        .electronic:   [1.2, 0.8, 0.6],
+        .edm:          [1.0, 0.3, 0.1],
+        .downtempo:    [0.6, 0.8, 0.8],
+        .chillwave:    [0.5, 0.4, 0.4],
+        .ambient:      [0.3, 0.5, 1.2],
+        .dreamPop:     [0.3, 0.3, 0.3],
+        .synthpop:     [0.5, 0.2, 0.1],
+        .indietronica: [0.4, 0.4, 0.1],
+        .nuDisco:      [0.4, 0.2, 0.0],
+        .lofi:         [0.1, 0.4, 0.2],
+        .pop:          [0.15, 0.1, 0.0]
+    ]
+    static let padDefault = 0.3
+
+    //                               unstable saw, Aloboi Synth
+    static let lead: [Genre: [Double]] = [
+        .electronic:   [1.0, 0.8],
+        .edm:          [0.8, 0.3],
+        .downtempo:    [0.4, 0.5],
+        .chillwave:    [0.3, 0.4],
+        .ambient:      [0.1, 0.3],
+        .dreamPop:     [0.2, 0.3],
+        .synthpop:     [0.5, 0.2],
+        .indietronica: [0.3, 0.3],
+        .nuDisco:      [0.3, 0.1],
+        .lofi:         [0.1, 0.3],
+        .pop:          [0.1, 0.1]
+    ]
+    static let leadDefault = 0.3
+
+    //                               Aloboi Synth
+    static let arp: [Genre: [Double]] = [
+        .electronic:   [0.8],
+        .edm:          [0.3],
+        .downtempo:    [0.5],
+        .chillwave:    [0.4],
+        .ambient:      [0.3],
+        .dreamPop:     [0.2],
+        .synthpop:     [0.2],
+        .indietronica: [0.3],
+        .nuDisco:      [0.1],
+        .lofi:         [0.3],
+        .pop:          [0.05]
+    ]
+    static let arpDefault = 0.25
+
+    //                               reese, dirty reese
+    static let sub: [Genre: [Double]] = [
+        .electronic:   [1.0, 0.8],
+        .edm:          [0.8, 0.8],
+        .downtempo:    [0.6, 0.2],
+        .chillwave:    [0.2, 0.0],
+        .ambient:      [0.1, 0.0],
+        .dreamPop:     [0.0, 0.0],
+        .synthpop:     [0.2, 0.1],
+        .indietronica: [0.2, 0.1],
+        .nuDisco:      [0.0, 0.0],
+        .lofi:         [0.1, 0.0],
+        .pop:          [0.0, 0.0]
+    ]
+    static let subDefault = 0.25
+}
+
 // MARK: - Palette.make
 
 extension Palette {
     /// Picks a character for every instrument from the genre's taste, bends it with the mood and the
     /// brightness, then nudges every number a little with the seed.
     /// Nothing here depends on which instruments the user turned on.
-    static func make(genre: Genre?, mood: Mood, brightness: Float, rng: SeededRNG) -> Palette {
+    static func make(genre: Genre?, mood: Mood, brightness: Float, aloboi: Bool = false,
+                     rng: SeededRNG) -> Palette {
         let tilt = MoodTilt(mood)
         let b = min(max(brightness, 0), 1)
 
         var gPad = rng.fork(1)
-        var pad = PatchLibrary.pad(pickIndex(genreWeights(GenreTaste.pad, genre), count: PatchLibrary.padCount, &gPad),
-                                   brightness: b)
+        let padWeights = characterWeights(GenreTaste.pad, genre, oldCount: PatchLibrary.oldPadCount,
+                                          extra: AloboiTaste.pad, extraCount: 3,
+                                          extraDefault: AloboiTaste.padDefault, aloboi: aloboi)
+        var pad = PatchLibrary.pad(pickIndex(padWeights, count: PatchLibrary.padCount, &gPad), brightness: b)
         varySynth(&pad, tilt, &gPad)
 
         var gStr = rng.fork(2)
@@ -947,13 +1111,17 @@ extension Palette {
         varySynth(&strings, tilt, &gStr)
 
         var gLead = rng.fork(3)
-        var lead = PatchLibrary.lead(pickIndex(genreWeights(GenreTaste.lead, genre), count: PatchLibrary.leadCount, &gLead),
-                                     brightness: b)
+        let leadWeights = characterWeights(GenreTaste.lead, genre, oldCount: PatchLibrary.oldLeadCount,
+                                           extra: AloboiTaste.lead, extraCount: 2,
+                                           extraDefault: AloboiTaste.leadDefault, aloboi: aloboi)
+        var lead = PatchLibrary.lead(pickIndex(leadWeights, count: PatchLibrary.leadCount, &gLead), brightness: b)
         varySynth(&lead, tilt, &gLead)
 
         var gArp = rng.fork(4)
-        var arp = PatchLibrary.arp(pickIndex(genreWeights(GenreTaste.arp, genre), count: PatchLibrary.arpCount, &gArp),
-                                   brightness: b)
+        let arpWeights = characterWeights(GenreTaste.arp, genre, oldCount: PatchLibrary.oldArpCount,
+                                          extra: AloboiTaste.arp, extraCount: 1,
+                                          extraDefault: AloboiTaste.arpDefault, aloboi: aloboi)
+        var arp = PatchLibrary.arp(pickIndex(arpWeights, count: PatchLibrary.arpCount, &gArp), brightness: b)
         varySynth(&arp, tilt, &gArp)
 
         var gPluck = rng.fork(5)
@@ -962,7 +1130,10 @@ extension Palette {
         varySynth(&pluck, tilt, &gPluck)
 
         var gSub = rng.fork(6)
-        var sub = PatchLibrary.sub(pickIndex(genreWeights(GenreTaste.sub, genre), count: PatchLibrary.subCount, &gSub))
+        let subWeights = characterWeights(GenreTaste.sub, genre, oldCount: PatchLibrary.oldSubCount,
+                                          extra: AloboiTaste.sub, extraCount: 2,
+                                          extraDefault: AloboiTaste.subDefault, aloboi: aloboi)
+        var sub = PatchLibrary.sub(pickIndex(subWeights, count: PatchLibrary.subCount, &gSub))
         sub.cutoff *= jit(&gSub, 0.85, 1.2)
         sub.envAmount *= jit(&gSub, 0.8, 1.25)
         sub.envDecay *= jit(&gSub, 0.85, 1.2)

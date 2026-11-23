@@ -23,6 +23,8 @@ func usage() {
       --intensity 0...1
       --grit 0...1
       --just              use just intonation tuning
+      --alobend           bend every chord into pure ratios of its own (also switches --just on)
+      --aloboi-sound      unstable oscillators, Reese bass, rich pads and the Aloboi Synth sample
       --seed N
       --out FILE.wav
       --list              show every genre, mood, preset, instrument and vocal with its name
@@ -125,6 +127,8 @@ if let v = value("--intensity"), let d = Double(v) { settings.intensity = d }
 if let v = value("--grit"), let d = Double(v) { settings.grit = d }
 if let k = value("--key"), let i = Int(k) { settings.key = i }
 if args.contains("--just") { settings.justIntonation = true }
+if args.contains("--alobend") { settings.alobend = true; settings.justIntonation = true }
+if args.contains("--aloboi-sound") { settings.aloboiSound = true }
 if let list = value("--instruments") {
     var set = Set<InstrumentKind>()
     for name in list.split(separator: ",") {

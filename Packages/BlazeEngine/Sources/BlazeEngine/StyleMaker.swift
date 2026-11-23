@@ -99,7 +99,8 @@ enum StyleMaker {
         let leadInVerse = partRNG.chance(gt.leadVerse)
 
         // MARK: sound design (each maker gets its own independent generator)
-        let palette = Palette.make(genre: genre, mood: mood, brightness: brightness, rng: rng.fork(240))
+        let palette = Palette.make(genre: genre, mood: mood, brightness: brightness, aloboi: s.aloboiSound,
+                                   rng: rng.fork(240))
         let kit = DrumKitSpec.make(genre: genre, mood: mood, style: drumStyle, rng: rng.fork(340))
         let fx = FXSpec.make(genre: genre, mood: mood, reverb: reverb, tempo: s.tempo, rng: rng.fork(250))
         let master = MasterSpec.make(genre: genre, mood: mood, rng: rng.fork(260))
