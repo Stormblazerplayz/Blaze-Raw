@@ -59,8 +59,10 @@ public enum SongEngine {
                     let trim = Calibration.trim(grit: grit, intensity: intensity, semis: 12, aux: 0,
                                                 chosen: { c, n in Synths.bass(n, ctx: c, mix: unit, patch: pal.sub) },
                                                 reference: { c, n in Synths.bass(n, ctx: c, mix: unit, patch: classic.sub) })
+                    // Under the Aloboi piano the bass steps back a little, so the piano leads.
+                    let aloboiTrim: Float = pal.aloboi ? 0.75 : 1
                     Synths.bass(plan.bassNotes(), ctx: ctx,
-                                mix: Mix(gain: 0.33 * trim * pal.sub.gain, duck: duck * 0.8), patch: pal.sub)
+                                mix: Mix(gain: 0.33 * trim * pal.sub.gain * aloboiTrim, duck: duck * 0.8), patch: pal.sub)
                 }))
             case .growlBass:
                 jobs.append((0.08, {
@@ -96,6 +98,18 @@ public enum SongEngine {
                                 mix: Mix(gain: 0.15 * trim * pal.strings.gain, reverb: rv(revAmt + 0.1), duck: duck * 0.8),
                                 patch: pal.strings, tiers: stringTiers)
                 }))
+            case .lead where pal.aloboi:
+                // With the Aloboi sound the melody is played on the Aloboi piano.
+                let leadPiano = pal.aloPiano.asLead
+                jobs.append((0.06, {
+                    let trim = Calibration.trim(grit: grit, intensity: intensity, semis: 48, aux: 0,
+                                                chosen: { c, n in Synths.aloPiano(n, ctx: c, mix: unit, patch: leadPiano) },
+                                                reference: { c, n in Synths.poly(n, ctx: c, mix: unit, patch: classic.lead) })
+                    Synths.aloPiano(plan.leadNotes(), ctx: ctx,
+                                    mix: Mix(gain: 0.27 * trim * leadPiano.gain, reverb: rv(revAmt * 0.6), delay: 0.2,
+                                             duck: duck * 0.3),
+                                    patch: leadPiano)
+                }))
             case .lead:
                 jobs.append((0.06, {
                     let trim = Calibration.trim(grit: grit, intensity: intensity, semis: 48, aux: 0,
@@ -104,6 +118,17 @@ public enum SongEngine {
                     Synths.poly(plan.leadNotes(), ctx: ctx,
                                 mix: Mix(gain: 0.22 * trim * pal.lead.gain, reverb: rv(0.2), delay: 0.3, duck: duck * 0.5),
                                 patch: pal.lead)
+                }))
+            case .piano where pal.aloboi:
+                // The Aloboi piano: a piano played on a retro sound chip, wide and a little scratchy.
+                let piano = pal.aloPiano
+                jobs.append((0.08, {
+                    let trim = Calibration.trim(grit: grit, intensity: intensity, semis: 34, aux: 0,
+                                                chosen: { c, n in Synths.aloPiano(n, ctx: c, mix: unit, patch: piano) },
+                                                reference: { c, n in Synths.keys(n, ctx: c, mix: unit, patch: classic.keys) })
+                    Synths.aloPiano(plan.pianoNotes(), ctx: ctx,
+                                    mix: Mix(gain: 0.42 * trim * piano.gain, reverb: rv(revAmt * 0.8), duck: duck * 0.3),
+                                    patch: piano)
                 }))
             case .piano:
                 jobs.append((0.06, {
@@ -140,6 +165,17 @@ public enum SongEngine {
                     Synths.bells(plan.bellNotes(), ctx: ctx,
                                  mix: Mix(gain: 0.16 * trim * pal.bells.gain, reverb: rv(0.55), delay: 0.25),
                                  patch: pal.bells)
+                }))
+            case .arp where pal.aloboi:
+                // Fast runs on the Aloboi piano, like the arpeggios of old computer music.
+                let arpPiano = pal.aloPiano.asArp
+                jobs.append((0.05, {
+                    let trim = Calibration.trim(grit: grit, intensity: intensity, semis: 48, aux: 0,
+                                                chosen: { c, n in Synths.aloPiano(n, ctx: c, mix: unit, patch: arpPiano) },
+                                                reference: { c, n in Synths.poly(n, ctx: c, mix: unit, patch: classic.arp) })
+                    Synths.aloPiano(plan.arpNotes(), ctx: ctx,
+                                    mix: Mix(gain: 0.24 * trim * arpPiano.gain, reverb: rv(0.25), delay: 0.3, duck: duck * 0.5),
+                                    patch: arpPiano)
                 }))
             case .arp:
                 jobs.append((0.05, {

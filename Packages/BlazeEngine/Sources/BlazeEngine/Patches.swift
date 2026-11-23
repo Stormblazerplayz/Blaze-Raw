@@ -217,6 +217,76 @@ struct BellPatch {
     var gain: Float = 1
 }
 
+/// The "Aloboi piano": a piano played on a retro sound chip. Aloboi's sound has been described as "like if
+/// Commodore made pianos instead of computers" and "wide and a little scratchy, but never synthetic".
+/// So every note is struck like a piano (a hammer click, bright at first, then darker and quieter, and
+/// longer for low notes than for high ones), but its tone comes from chip waves (a pulse wave and a
+/// stepped triangle like the Commodore 64's SID chip) mixed with the Aloboi Synth sample. The tone is
+/// crushed to a few bits for a little scratch, and every note is played twice, slightly out of tune and
+/// spread left and right, so it sounds wide.
+struct ChipPianoPatch {
+    var name: String = "Commodore grand"
+    /// Levels of the three tone sources.
+    var pulse: Float = 0.55
+    var tri: Float = 0.45
+    var sample: Float = 0.3
+    /// Pulse width (0.5 = square) and how far and how fast it slowly moves (SID-style pulse width modulation).
+    var pulseWidth: Float = 0.32
+    var pwmDepth: Float = 0.08
+    var pwmRate: Float = 0.7
+    /// Steps in the stepped triangle (16 = a 4-bit triangle, like the SID chip).
+    var triSteps: Float = 16
+    /// Cents between the left and the right copy of every note.
+    var detune: Float = 6
+    /// How far apart the two copies sit: 0 = both in the middle, 1 = hard left and hard right.
+    var width: Float = 0.85
+    /// Slow random pitch wander of each copy, in cents (the "unstable" analog feel).
+    var wander: Float = 2
+    /// Brightness: the low-pass cutoff is `keep` x the note's pitch, plus `strike` Hz at the start of the
+    /// note that fades over `brightTau` seconds (a piano is brightest right after the hammer hits).
+    var keep: Float = 3
+    var strike: Float = 6000
+    var brightTau: Float = 0.28
+    var q: Float = 0.8
+    /// Loudness: `thump` of the level falls away quickly (over `thumpTau` seconds) right after the hammer,
+    /// the rest fades slowly with a time constant that is shorter for higher notes, like a piano string.
+    var thump: Float = 0.45
+    var thumpTau: Float = 0.12
+    var tauBase: Float = 3.2
+    var tauSlope: Float = 600
+    var tauMin: Float = 0.6
+    var tauMax: Float = 3.2
+    var release: Float = 0.25
+    /// Hammer click: a short burst of filtered noise at the start of every note.
+    var hammer: Float = 0.22
+    var hammerHz: Float = 2800
+    /// Scratch: bit depth of the tone (16 = clean) and sample hold (1 = off, 2 = half the sample rate).
+    var bits: Int = 8
+    var hold: Int = 1
+    var gain: Float = 1
+
+    /// The same piano for melodies: a little brighter and narrower, so the tune stands out.
+    var asLead: ChipPianoPatch {
+        var p = self
+        p.strike *= 1.2
+        p.keep *= 1.15
+        p.width *= 0.7
+        p.thump *= 0.8
+        return p
+    }
+
+    /// The same piano for fast arpeggios: shorter notes, so the runs stay clear.
+    var asArp: ChipPianoPatch {
+        var p = self
+        p.tauBase *= 0.35
+        p.tauMax *= 0.35
+        p.tauMin *= 0.5
+        p.release = min(p.release, 0.12)
+        p.hammer *= 0.7
+        return p
+    }
+}
+
 // MARK: - Palette: the sound of every instrument in one song
 
 struct Palette {
@@ -230,9 +300,18 @@ struct Palette {
     var keys: KeysPatch
     var guitar: GuitarPatch
     var bells: BellPatch
+    /// The Aloboi piano. With the Aloboi sound on, it plays the piano, the lead melody and the arpeggios.
+    var aloPiano: ChipPianoPatch = ChipPianoPatch()
+    /// True when the song uses the Aloboi sound.
+    var aloboi: Bool = false
 
     var summary: String {
-        "pad \(pad.name), strings \(strings.name), lead \(lead.name), arp \(arp.name), pluck \(pluck.name), "
+        if aloboi {
+            let piano = "\(aloPiano.name) piano"
+            return "pad \(pad.name), strings \(strings.name), lead \(piano), arp \(piano), pluck \(pluck.name), "
+                + "bass \(sub.name), growl \(growl.name), keys \(piano), guitar \(guitar.name), bells \(bells.name)"
+        }
+        return "pad \(pad.name), strings \(strings.name), lead \(lead.name), arp \(arp.name), pluck \(pluck.name), "
             + "bass \(sub.name), growl \(growl.name), keys \(keys.name), guitar \(guitar.name), bells \(bells.name)"
     }
 
@@ -865,6 +944,52 @@ enum PatchLibrary {
         }
         return p
     }
+
+    // MARK: the Aloboi piano
+
+    static let aloPianoCount = 4
+
+    static func aloPiano(_ c: Int) -> ChipPianoPatch {
+        var p = ChipPianoPatch()
+        switch c {
+        case 1:
+            // Thinner pulse, a coarse 3-bit triangle, more crunch and a louder hammer: an old upright.
+            p.name = "chip upright"
+            p.pulse = 0.7; p.tri = 0.3; p.sample = 0.15
+            p.pulseWidth = 0.25; p.pwmDepth = 0.12; p.triSteps = 8
+            p.detune = 8; p.width = 0.9; p.wander = 3
+            p.keep = 2.6; p.strike = 5000; p.brightTau = 0.2
+            p.thump = 0.55; p.thumpTau = 0.09
+            p.tauBase = 2.4; p.tauMax = 2.4; p.release = 0.18
+            p.hammer = 0.35; p.hammerHz = 2200
+            p.bits = 7; p.hold = 2
+        case 2:
+            // Led by the Aloboi Synth sample, wide open and long: the closest to the Alobend Synth itself.
+            p.name = "Alobend keys"
+            p.pulse = 0.35; p.tri = 0.3; p.sample = 0.7
+            p.pulseWidth = 0.4; p.pwmDepth = 0.05
+            p.detune = 7; p.width = 0.9; p.wander = 2.5
+            p.keep = 3.4; p.strike = 5500; p.brightTau = 0.35
+            p.thump = 0.35; p.thumpTau = 0.15
+            p.tauBase = 3.6; p.tauMax = 3.6; p.release = 0.3
+            p.hammer = 0.15
+            p.bits = 9
+        case 3:
+            // Mostly the stepped triangle, darker and softer: a felt piano on a sound chip.
+            p.name = "SID felt"
+            p.pulse = 0.3; p.tri = 0.7; p.sample = 0.25
+            p.pulseWidth = 0.45; p.pwmDepth = 0.04
+            p.detune = 5; p.width = 0.75; p.wander = 1.5
+            p.keep = 2.2; p.strike = 3200; p.brightTau = 0.3; p.q = 0.7
+            p.thump = 0.4
+            p.tauBase = 2.8; p.tauMax = 2.8; p.release = 0.25
+            p.hammer = 0.18; p.hammerHz = 1800
+            p.bits = 8
+        default:
+            p.name = "Commodore grand"
+        }
+        return p
+    }
 }
 
 // MARK: - Which characters each genre likes
@@ -1085,6 +1210,12 @@ private enum AloboiTaste {
         .pop:          [0.0, 0.0]
     ]
     static let subDefault = 0.25
+
+    // With the Aloboi sound on, the Aloboi piano leads, so the other sounds stay soft and natural.
+    //  classic supersaw glass warm-analog juno drone gated washed | unstable-stack Aloboi-Synth intermod-drone
+    static let padWithAloboiSound: [Double] = [0.4, 0, 0.2, 0.4, 0.1, 0.2, 0, 1.5, 0.6, 6, 0.3]
+    //                              sine  saw   square FM   808  funk round warm reese dirty
+    static let subWithAloboiSound: [Double] = [2, 0, 0, 0.5, 0, 0, 3, 4, 0, 0]
 }
 
 // MARK: - Palette.make
@@ -1099,9 +1230,14 @@ extension Palette {
         let b = min(max(brightness, 0), 1)
 
         var gPad = rng.fork(1)
-        let padWeights = characterWeights(GenreTaste.pad, genre, oldCount: PatchLibrary.oldPadCount,
+        var padWeights = characterWeights(GenreTaste.pad, genre, oldCount: PatchLibrary.oldPadCount,
                                           extra: AloboiTaste.pad, extraCount: 3,
                                           extraDefault: AloboiTaste.padDefault, aloboi: aloboi)
+        if aloboi {
+            // Under the Aloboi piano the pad stays soft and natural: mostly the Aloboi Synth sample, sometimes
+            // the warm "washed" pad, rarely the saw stacks.
+            padWeights = AloboiTaste.padWithAloboiSound
+        }
         var pad = PatchLibrary.pad(pickIndex(padWeights, count: PatchLibrary.padCount, &gPad), brightness: b)
         varySynth(&pad, tilt, &gPad)
 
@@ -1130,9 +1266,13 @@ extension Palette {
         varySynth(&pluck, tilt, &gPluck)
 
         var gSub = rng.fork(6)
-        let subWeights = characterWeights(GenreTaste.sub, genre, oldCount: PatchLibrary.oldSubCount,
+        var subWeights = characterWeights(GenreTaste.sub, genre, oldCount: PatchLibrary.oldSubCount,
                                           extra: AloboiTaste.sub, extraCount: 2,
-                                          extraDefault: AloboiTaste.subDefault, aloboi: aloboi)
+                                          extraDefault: AloboiTaste.subDefault, aloboi: false)
+        if aloboi {
+            // A round, warm bass that sits under a piano (never the Reese: "never synthetic").
+            subWeights = AloboiTaste.subWithAloboiSound
+        }
         var sub = PatchLibrary.sub(pickIndex(subWeights, count: PatchLibrary.subCount, &gSub))
         sub.cutoff *= jit(&gSub, 0.85, 1.2)
         sub.envAmount *= jit(&gSub, 0.8, 1.25)
@@ -1171,8 +1311,20 @@ extension Palette {
         bells.modIndex *= jit(&gBells, 0.85, 1.15)
         bells.length = max(0.8, bells.length * jit(&gBells, 0.9, 1.15))
 
+        // The Aloboi piano gets its own generator, so choosing it never changes any other sound.
+        var gAlo = rng.fork(11)
+        var alo = PatchLibrary.aloPiano(pickIndex([3, 2, 3, 2], count: PatchLibrary.aloPianoCount, &gAlo))
+        alo.detune *= jit(&gAlo, 0.8, 1.25)
+        alo.strike *= tilt.cutoffScale * jit(&gAlo, 0.85, 1.15) * (0.85 + 0.3 * b)
+        alo.tauBase *= jit(&gAlo, 0.9, 1.12)
+        alo.tauMax = max(alo.tauMax, alo.tauBase)
+        alo.pwmRate *= jit(&gAlo, 0.7, 1.4)
+        alo.wander *= jit(&gAlo, 0.8, 1.3)
+        alo.release *= tilt.releaseScale
+        alo.bits = min(max(alo.bits + gAlo.int(-1...1), 6), 10)
+
         return Palette(pad: pad, strings: strings, lead: lead, arp: arp, pluck: pluck, sub: sub,
-                       growl: growl, keys: keys, guitar: guitar, bells: bells)
+                       growl: growl, keys: keys, guitar: guitar, bells: bells, aloPiano: alo, aloboi: aloboi)
     }
 
     /// Mood and seed variation shared by all synth characters.
@@ -1263,7 +1415,8 @@ private struct FXBase {
 }
 
 extension FXSpec {
-    static func make(genre: Genre?, mood: Mood, reverb: Float, tempo: Double, rng: SeededRNG) -> FXSpec {
+    static func make(genre: Genre?, mood: Mood, reverb: Float, tempo: Double, aloboi: Bool = false,
+                     rng: SeededRNG) -> FXSpec {
         var g = rng.fork(21)
         let tilt = MoodTilt(mood)
         var base = FXBase()
@@ -1350,6 +1503,16 @@ extension FXSpec {
         fx.bits = base.bits
         fx.wow = base.wow > 0 ? base.wow * jit(&g, 0.7, 1.3) : 0
         fx.crackle = base.crackle > 0 ? base.crackle * jit(&g, 0.7, 1.3) : 0
+
+        if aloboi {
+            // "Natural, never synthetic": a real-sounding room around the piano, no chorus wash, no tape wobble
+            // (it would bend the pure Alobend chords), and only a whisper of vinyl scratch.
+            fx.room = min(max(0.5 * fx.room + 0.3, 0.45), 0.8)
+            fx.damping = min(max(fx.damping, 0.4), 0.6)
+            fx.padChorus = 0
+            fx.wow = 0
+            fx.crackle = max(fx.crackle, 0.005)
+        }
         return fx
     }
 }
@@ -1379,7 +1542,7 @@ struct MasterSpec {
 }
 
 extension MasterSpec {
-    static func make(genre: Genre?, mood: Mood, rng: SeededRNG) -> MasterSpec {
+    static func make(genre: Genre?, mood: Mood, aloboi: Bool = false, rng: SeededRNG) -> MasterSpec {
         var g = rng.fork(31)
         var m = MasterSpec()
         if let gn = genre {
@@ -1409,6 +1572,12 @@ extension MasterSpec {
         m.saturation = min(max(m.saturation * jit(&g, 0.8, 1.2), 0), 1)
         m.ceiling = min(max(m.ceiling, 0.9), 0.97)
         m.width = min(max(m.width * jit(&g, 0.95, 1.05), 0.6), 1.5)
+        if aloboi {
+            // Wide and a little saturated, with less shiny "air" on top.
+            m.width = min(max(m.width * 1.1, 1.2), 1.35)
+            m.saturation = min(m.saturation + 0.08, 1)
+            m.airAmount *= 0.8
+        }
         return m
     }
 }

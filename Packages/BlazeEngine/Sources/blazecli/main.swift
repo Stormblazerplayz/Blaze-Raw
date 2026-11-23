@@ -24,7 +24,7 @@ func usage() {
       --grit 0...1
       --just              use just intonation tuning
       --alobend           bend every chord into pure ratios of its own (also switches --just on)
-      --aloboi-sound      unstable oscillators, Reese bass, rich pads and the Aloboi Synth sample
+      --aloboi-sound      the Aloboi piano (a retro chip piano, wide and a little scratchy) on piano, lead and arp
       --seed N
       --out FILE.wav
       --list              show every genre, mood, preset, instrument and vocal with its name

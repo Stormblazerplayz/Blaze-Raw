@@ -240,7 +240,7 @@ struct CreateView: View {
             Toggle(isOn: model.bind(\.aloboiSound)) {
                 VStack(alignment: .leading, spacing: 2) {
                     Text("Aloboi sound")
-                    Text("Unstable oscillators, Reese bass, rich pads and the Aloboi Synth sample.")
+                    Text("A retro chip piano (wide, a little scratchy) plays the piano, melody and arps, like a classical pianist.")
                         .font(.caption)
                         .foregroundStyle(.secondary)
                 }
