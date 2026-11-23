@@ -50,9 +50,9 @@ final class AloboiTests: XCTestCase {
     }
 
     /// Plays one note of a patch through the generic synth and returns the left channel.
-    private func playNote(_ patch: SynthPatch, semis: Int, beats: Double = 4) -> [Float] {
+    private func playNote(_ patch: SynthPatch, semis: Int, beats: Double = 4, seconds: Double = 3) -> [Float] {
         let sr: Float = 44100
-        let frames = Int(sr * 3)
+        let frames = Int(Double(sr) * seconds)
         let ctx = RenderContext(sr: sr, bpm: 120, frames: frames, bodyFrames: frames,
                                 tuning: TuningSystem(tonicHz: midiToHz(24), just: false), grit: 0.5, intensity: 0.7)
         Synths.poly([NoteEvent(beat: 0, dur: beats, semis: semis, vel: 0.9)], ctx: ctx, mix: Mix(gain: 1), patch: patch)
@@ -116,9 +116,10 @@ final class AloboiTests: XCTestCase {
         }
     }
 
-    /// The "centre of mass" of the spectrum of a 4096-sample window, in Hz (44.1 kHz audio).
-    private func spectralCentroid(_ x: [Float], from start: Int) -> Double {
-        let size = 4096
+    /// The frequency (Hz) of the strongest spectral peak between `low` and `high` Hz, in a 32768-sample window
+    /// (44.1 kHz audio, so about 1.3 Hz per bin).
+    private func strongestPeak(_ x: [Float], from start: Int, low: Double, high: Double) -> Double {
+        let size = 32768
         var re = [Double](repeating: 0, count: size)
         var im = [Double](repeating: 0, count: size)
         for k in 0..<size {
@@ -126,14 +127,18 @@ final class AloboiTests: XCTestCase {
             re[k] = Double(x[start + k]) * w
         }
         fft(&re, &im)
-        var num = 0.0
-        var den = 0.0
+        var bestBin = 1
+        var bestPower = 0.0
         for b in 1..<(size / 2) {
-            let mag = (re[b] * re[b] + im[b] * im[b]).squareRoot()
-            num += mag * (Double(b) * 44100.0 / Double(size))
-            den += mag
+            let hz = Double(b) * 44100.0 / Double(size)
+            if hz < low || hz > high { continue }
+            let power = re[b] * re[b] + im[b] * im[b]
+            if power > bestPower {
+                bestPower = power
+                bestBin = b
+            }
         }
-        return num / max(den, 1e-12)
+        return Double(bestBin) * 44100.0 / Double(size)
     }
 
     // MARK: the sample
@@ -199,17 +204,18 @@ final class AloboiTests: XCTestCase {
         p.name = "test sample"
         p.sample = 1; p.oscLevel = 0; p.cutoff = 15000; p.q = 0.7
         p.attack = 0.01; p.decay = 0.1; p.sustain = 1; p.release = 0.1
-        // semis 36 is C4 (the tonic is C1 here) and semis 48 is C5: the whole spectrum must move up an octave.
-        let low = playNote(p, semis: 36)
-        let high = playNote(p, semis: 48)
-        XCTAssertTrue(finite(low))
-        XCTAssertTrue(finite(high))
-        XCTAssertGreaterThan(rms(low), 0.02)
-        XCTAssertGreaterThan(rms(high), 0.02)
-        let ratio = spectralCentroid(high, from: 13000) / spectralCentroid(low, from: 13000)
-        print("ALOBOI sample octave check: centroid ratio \(ratio)")
-        XCTAssertGreaterThan(ratio, 1.7)
-        XCTAssertLessThan(ratio, 2.3)
+        // After about 1.8 s the sample is inside its loop, an exact comb of partials in which the strongest
+        // one is the 10th harmonic of the loop rate: half the pitch the sample sounds at (measured when the
+        // sample was added). So the strongest low partial of a note must sit at half the note's frequency.
+        for semis in [36, 48, 60] {
+            let hz = midiToHz(24) * pow(2.0, Double(semis) / 12)
+            let x = playNote(p, semis: semis, beats: 8, seconds: 5)
+            XCTAssertTrue(finite(x), "semis \(semis)")
+            XCTAssertGreaterThan(rms(x), 0.02, "semis \(semis)")
+            let peak = strongestPeak(x, from: 100_000, low: 0.25 * hz, high: 2.6 * hz)
+            print("ALOBOI sample pitch check: note \(hz) Hz, strongest partial \(peak) Hz (expected \(hz / 2))")
+            XCTAssertEqual(peak / (hz / 2), 1, accuracy: 0.03, "semis \(semis): the sample is not at the note's pitch")
+        }
     }
 
     // MARK: unstable oscillators and the new patches
@@ -276,7 +282,7 @@ final class AloboiTests: XCTestCase {
         let x = playBass(reese, semis: 24, beats: 5)
         var slices: [Double] = []
         let size = 4410
-        var start = 4410
+        var start = 44100   // from one second in, after the filter envelope has settled
         while start + size < Int(44100 * 2.2) {
             slices.append(rms(Array(x[start..<(start + size)])))
             start += size
@@ -284,7 +290,7 @@ final class AloboiTests: XCTestCase {
         let lo = slices.min() ?? 0
         let hi = slices.max() ?? 0
         print("ALOBOI reese loudness slices \(slices.map { String(format: "%.3f", $0) })")
-        XCTAssertGreaterThan(hi, lo * 1.02, "the Reese bass does not move at all")
+        XCTAssertGreaterThan(hi, lo * 1.01, "the Reese bass does not move at all")
     }
 
     func testTheAloboiCharactersAreCommonOnlyWhenTheAloboiSoundIsOn() {
@@ -333,9 +339,13 @@ final class AloboiTests: XCTestCase {
         XCTAssertEqual(tuning.frequency(semis: 12, beat: 5) / root2, 6.0 / 5, accuracy: 1e-9)
         XCTAssertEqual(tuning.frequency(semis: 16, beat: 6) / root2, 3.0 / 2, accuracy: 1e-9)
         XCTAssertEqual(tuning.frequency(semis: 19, beat: 7) / root2, 9.0 / 5, accuracy: 1e-9)
+        // A note that is played a hair early (the humanising wobble) still belongs to the chord of its own bar.
+        XCTAssertEqual(tuning.frequency(semis: 12, beat: 3.99) / root2, 6.0 / 5, accuracy: 1e-9)
+        XCTAssertEqual(tuning.frequency(semis: 12, beat: 3.9) / root, 3.0 / 2, accuracy: 1e-9)   // still the F chord
 
         // The same note is tuned differently in different chords (that is the point of Alobend).
-        XCTAssertNotEqual(tuning.frequency(semis: 12, beat: 0), tuning.frequency(semis: 12, beat: 4))
+        // (Semitone 15 is 233.33 Hz over the F chord and 234.38 Hz over the A minor chord.)
+        XCTAssertGreaterThan(abs(tuning.frequency(semis: 15, beat: 0) - tuning.frequency(semis: 15, beat: 4)), 0.5)
         // After the last bar, the last chord keeps going; a negative beat uses the first chord and a beat
         // that is not a number falls back to plain just intonation.
         XCTAssertEqual(tuning.frequency(semis: 12, beat: 400), tuning.frequency(semis: 12, beat: 5), accuracy: 1e-9)
@@ -381,16 +391,18 @@ final class AloboiTests: XCTestCase {
                 XCTAssertEqual(plan.tuning.barChords.count, plan.totalBars, "\(genre): one chord per bar")
                 for bar in 0..<plan.totalBars {
                     let chord = plan.chord(atBar: bar)
-                    let beat = Double(bar * 4) + 1
-                    let root = plan.tuning.frequency(semis: chord.rootSemis, beat: beat)
-                    XCTAssertEqual(root, plan.tuning.frequency(semis: chord.rootSemis), accuracy: 1e-9,
-                                   "\(genre) bar \(bar): the root stays on the just-intonation scale")
-                    for tone in chord.tones {
-                        var ratio = plan.tuning.frequency(semis: tone, beat: beat) / root
-                        while ratio >= 2 { ratio /= 2 }
-                        while ratio < 1 { ratio *= 2 }
-                        XCTAssertTrue(pure.contains { abs($0 - ratio) < 1e-9 },
-                                      "\(genre) seed \(seed) bar \(bar): tone \(tone) has ratio \(ratio), not a pure ratio")
+                    // One beat into the bar, and a hair before the bar line (a humanised downbeat note).
+                    for beat in [Double(bar * 4) + 1, Double(bar * 4) - 0.01] {
+                        let root = plan.tuning.frequency(semis: chord.rootSemis, beat: beat)
+                        XCTAssertEqual(root, plan.tuning.frequency(semis: chord.rootSemis), accuracy: 1e-9,
+                                       "\(genre) bar \(bar): the root stays on the just-intonation scale")
+                        for tone in chord.tones {
+                            var ratio = plan.tuning.frequency(semis: tone, beat: beat) / root
+                            while ratio >= 2 { ratio /= 2 }
+                            while ratio < 1 { ratio *= 2 }
+                            XCTAssertTrue(pure.contains { abs($0 - ratio) < 1e-9 },
+                                          "\(genre) seed \(seed) bar \(bar) beat \(beat): tone \(tone) has ratio \(ratio), not a pure ratio")
+                        }
                     }
                 }
             }

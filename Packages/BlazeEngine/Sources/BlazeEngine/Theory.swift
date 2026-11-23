@@ -75,7 +75,10 @@ struct TuningSystem {
     /// has no beating at all (a major chord becomes exactly 4:5:6).
     func frequency(semis: Int, beat: Double) -> Double {
         if barChords.isEmpty || !beat.isFinite { return frequency(semis: semis) }
-        let bar = min(max(Int(beat / 4), 0), barChords.count - 1)
+        // A played (humanised) note can start a hair before its bar line (the timing wobble is at most 0.02
+        // of a beat and a swung step is only ever late), and it belongs to the chord of the bar it is
+        // meant for. So the bar changes 0.05 of a beat early.
+        let bar = min(max(Int((beat + 0.05) / 4), 0), barChords.count - 1)
         let chord = barChords[bar]
         let rel = semis - chord.rootSemis
         let oct = floorDiv(rel, 12)
