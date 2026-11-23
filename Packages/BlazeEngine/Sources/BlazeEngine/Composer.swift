@@ -835,6 +835,11 @@ struct SongPlan {
         var parts: [String] = []
         parts.append("\(genreName) / \(settings.mood.title)")
         parts.append("\(SongSettings.keyNames[key]) \(profile.scale.displayName) at \(Int(settings.tempo)) BPM")
+        if settings.alobend {
+            parts.append("Alobend tuning")
+        } else if settings.justIntonation {
+            parts.append("just intonation")
+        }
         parts.append("chords \(loopA) then \(loopB), \(profile.barsPerChord) bar each, \(profile.colorVerse.name)/\(profile.colorChorus.name)")
         // (The key change only happens in songs with at least two choruses, so look at what was really planned.)
         if sections.contains(where: { ($0.progression.first?.shift ?? 0) > 0 }) {
@@ -1121,7 +1126,7 @@ enum Composer {
         var keyRNG = rng.fork(1)
         let key = s.key ?? keyRNG.int(0...11)
         let profile = StyleMaker.make(settings: s, rng: rng)
-        let tuning = TuningSystem(tonicHz: midiToHz(Double(24 + key)), just: s.justIntonation)
+        var tuning = TuningSystem(tonicHz: midiToHz(Double(24 + key)), just: s.justIntonation || s.alobend)
 
         // How many bars do we need? Always at least one minute.
         let barSeconds = 4.0 * 60.0 / s.tempo
@@ -1178,6 +1183,24 @@ enum Composer {
                                     progression: progression,
                                     preDrop: next == .chorus))
             bar += bars
+        }
+
+        // Alobend: remember which chord plays in every bar, so each note can be tuned to a pure ratio above
+        // the root of its own chord (see TuningSystem.frequency(semis:beat:)).
+        if s.alobend {
+            var barChords: [ChordTuning] = []
+            barChords.reserveCapacity(totalBars)
+            for b in 0..<totalBars {
+                var si = sections.count - 1
+                for (i, sec) in sections.enumerated() where b >= sec.startBar && b < sec.endBar {
+                    si = i
+                    break
+                }
+                let sec = sections[si]
+                let k = (max(0, b - sec.startBar) / profile.barsPerChord) % sec.progression.count
+                barChords.append(ChordTuning(sec.progression[k]))
+            }
+            tuning = TuningSystem(tonicHz: tuning.tonicHz, just: true, barChords: barChords)
         }
 
         // Melodies: a chorus hook, its answer, a quieter verse melody and its answer.

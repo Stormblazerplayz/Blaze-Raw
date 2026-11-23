@@ -140,6 +140,8 @@ final class GeneratorModel: ObservableObject {
         if Bool.random() {
             for v in VocalStyle.allCases.shuffled().prefix(Int.random(in: 1...2)) { vocals.insert(v) }
         }
+        // Piano, just intonation or Alobend (a third of the time each).
+        let tuningPick = Int.random(in: 0...2)
         settings = SongSettings(
             tempo: clampTempo(tempo),
             mood: mood,
@@ -150,7 +152,9 @@ final class GeneratorModel: ObservableObject {
             lengthSeconds: [60.0, 90, 120].randomElement() ?? 90,
             intensity: (Double.random(in: 0.4...1) * 10).rounded() / 10,
             grit: (Double.random(in: 0...1) * 10).rounded() / 10,
-            justIntonation: Bool.random(),
+            justIntonation: tuningPick >= 1,
+            alobend: tuningPick == 2,
+            aloboiSound: Double.random(in: 0...1) < 0.25,
             seed: seed
         ).clamped()
         selectedPreset = nil

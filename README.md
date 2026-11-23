@@ -2,7 +2,7 @@
 
 An iPhone app that **makes its own music**. Pick a genre, a mood, a tempo, instruments and vocals, hit **Generate**, and get a brand-new song that is **at least one minute long** (up to three minutes). Songs are saved as WAV files you can share. Every song gets its own random recipe, so even the same settings give a different song each time (see [Why songs differ](#why-songs-differ)).
 
-It has an **Aloboi-style** preset, inspired by the public tags of Aloboi's *Intermodulation* (electronic, house, downtempo, vocal; gritty saw synths and just-intonation tuning). It makes new music in that spirit. It does **not** copy or sample any real song.
+It has an **Aloboi-style** preset, inspired by the public tags of Aloboi's *Intermodulation* (electronic, house, downtempo, vocal) and by how Aloboi works: MPE-capable virtual synths like Vital and Serum inside Logic Pro for unstable oscillators, Reese basses and rich synth pads, and **Alobend**, a custom MIDI retuning tool that bends standard keyboard chords into mathematically pure "just intonation" ratios. See [The Aloboi sound](#the-aloboi-sound). It makes new music in that spirit. It does **not** copy or sample any real song.
 
 > **TL;DR for getting it on your iPhone:** the app code and the GitHub robot are done. You still have to do the Apple account steps in [Step by step: Apple Developer and TestFlight](#step-by-step-apple-developer-and-testflight) (they need your Apple ID, your phone for the login code, and a grown-up for the payment). Then press one button on GitHub.
 
@@ -20,7 +20,8 @@ It has an **Aloboi-style** preset, inspired by the public tags of Aloboi's *Inte
 | **Style presets** (14) | Aloboi-style, Lo-fi Chill, Dark Techno, Happy Pop, Epic Movie, Dreamy Ambient, Raw Bass, Neon Synthpop, Disco Night, Beach Haze, Dream Pop, Indie Sparkle, Festival Drop, Slow Groove |
 | **Length** | 1:00, 1:30, 2:00, 2:30 or 3:00. A song is **never shorter than one minute** |
 | **Key, energy, grit** | Pick a key (or Auto), how busy it is, and how crunchy/distorted the synths are |
-| **Just intonation** | Pure-ratio tuning (3:2 fifths, 5:4 thirds) for a smooth, slightly unreal sound |
+| **Tuning** | *Piano* (normal), *Just* (every note a pure ratio of the key: 3:2 fifths, 5:4 thirds) or *Alobend* (every **chord** bent into pure ratios of its own root, see [The Aloboi sound](#the-aloboi-sound)) |
+| **Aloboi sound** | A switch for unstable oscillators, Reese bass, rich drifting pads and the built-in *Aloboi Synth* sample |
 | **Variations** | 🎲 *New variation* (same genre and mood, a brand-new song), 🎰 *Surprise me* (random genre, mood and everything else) |
 | **Library** | Play, scrub, share, delete, or swipe to **Remix** an old song's settings (genre included) |
 | **Saving** | WAV files appear in the Files app: *On My iPhone → Blaze Raw* |
@@ -38,6 +39,16 @@ No. The songs are made **on the phone by a built-in music engine** (no internet,
 5. **Mix** – sidechain "pumping" from the kick, stereo reverb, ping-pong echo, then loudness and a soft limiter so it never clips.
 
 The same settings and the same variation number always give the same song.
+
+### The Aloboi sound
+
+The **Aloboi-style** preset turns all of this on, and you can switch each part on yourself (*Aloboi sound* and *Tuning: Alobend* on the Create screen, `--aloboi-sound` and `--alobend` in `blazecli`).
+
+* **Unstable oscillators.** In an analog or MPE synth the oscillators never sit still. Here every unison voice of a pad or lead wanders slowly out of tune by itself (smoothed random pitch, a few cents, a couple of times a second), on top of the detune and drift the sounds already had (`SynthPatch.unstable`).
+* **Reese bass.** Three saws whose detune slowly breathes in and out (about every 5 seconds) through a low-pass filter and a drive stage: the phasing bass of drum and bass (`BassKind.reese`, two characters: *reese* and *dirty reese*).
+* **Rich synth pads.** Three new pads: *unstable stack* (five wandering saws), *Aloboi Synth* (the sample below, played twice slightly out of tune) and *intermod drone* (dark gritty saws with a fifth on top and a thick sub). There are Aloboi Synth lead and arp sounds and an *unstable saw* lead too.
+* **The Aloboi Synth sample.** `Assets/Aloboi_Synth.sf2` is a SoundFont with one looped sample (a gritty stack of detuned synth tones; the loop holds exactly 20 cycles of its pitch). `scripts/make_aloboi_sample.py` turns it into `AloboiSampleData.swift`, so the engine embeds it and needs no files at run time. `AloboiSample.swift` plays it like a sampler (faster for higher notes, looping at the loop points, with 4-point interpolation). Run `python scripts/make_aloboi_sample.py Assets/Aloboi_Synth.sf2 Packages/BlazeEngine/Sources/BlazeEngine/AloboiSampleData.swift` to rebuild it from a different SoundFont.
+* **Alobend tuning.** Alobend is described as a MIDI retuning tool that bends the chords of a normal keyboard into pure just-intonation ratios. The engine does the same thing per chord: the chord's root sits where just intonation puts it, and every other note is a pure ratio above that root (major third 5:4, minor third 6:5, fifth 3:2, sixth 5:3, seventh 15:8; on a major chord with a minor seventh the "harmonic" seventh 7:4, on a minor chord 9:5; tritone 45:32, or 7:5 on a diminished chord). A major chord becomes exactly 4:5:6 and does not beat at all. Because the root follows plain just intonation, the key never drifts.
 
 ### Why songs differ
 
@@ -63,12 +74,15 @@ Every time you press **Generate**, the engine first makes a **recipe**: a long l
 App/BlazeRaw/             SwiftUI iPhone app (screens, player, library)
 Packages/BlazeEngine/     The music engine (pure Swift, no Apple-only code)
   Sources/BlazeEngine/      Composer, Drums, Synths, Vocals, Renderer, WAV ...
+                            AloboiSample.swift plays the embedded Aloboi Synth sample (data in AloboiSampleData.swift)
   Sources/blazecli/         Command-line tool: make a song on any computer
   Tests/                    Unit tests (length >= 60 s, all genres/moods/instruments/vocals ...)
+Assets/                   Aloboi_Synth.sf2, the SoundFont the Aloboi Synth sample comes from
 Config/Info.plist         App settings (audio in background, Files access, no-encryption flag)
 project.yml               XcodeGen description (the .xcodeproj is generated, not stored)
 .github/workflows/ios.yml GitHub robot: test, build, sign, upload to TestFlight
-scripts/                  set-github-secrets.sh, make_icon.py, render-samples.sh (makes ~60 sample songs with blazecli)
+scripts/                  set-github-secrets.sh, make_icon.py, render-samples.sh (makes ~60 sample songs with blazecli),
+                          make_aloboi_sample.py (SoundFont -> AloboiSampleData.swift)
 ```
 
 ## Try the engine on a computer (no iPhone needed)
@@ -78,6 +92,12 @@ You need [Swift](https://www.swift.org/install/) (macOS or Linux).
 ```bash
 cd Packages/BlazeEngine
 swift run -c release blazecli --preset aloboi --seed 7 --out aloboi.wav
+```
+
+Try the Aloboi sound and Alobend tuning on any genre:
+
+```bash
+swift run -c release blazecli --genre downtempo --mood introspective --aloboi-sound --alobend --seed 5 --out downtempo-aloboi.wav
 ```
 
 ```bash
