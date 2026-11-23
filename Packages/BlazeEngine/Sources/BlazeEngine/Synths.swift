@@ -474,172 +474,54 @@ enum Synths {
         }
     }
 
-    // MARK: - The Aloboi piano (a piano played on a retro sound chip, see ChipPianoPatch)
+    // MARK: - The Aloboi Synth, played raw (the way a SoundFont player plays Assets/Aloboi_Synth.sf2)
 
-    static func aloPiano(_ notes: [NoteEvent], ctx: RenderContext, mix: Mix, patch: ChipPianoPatch) {
+    /// Plays the Aloboi Synth sample the way a SoundFont player plays the SoundFont: from its first frame, at
+    /// the note's pitch, looping while the note is held, at full level. The SoundFont sets no envelope, no
+    /// filter and no effects, so only what a mixing engineer would do is added: a 5 ms fade in and a short fade
+    /// out (so notes never click), a high-pass just under each note (the sample is a stack of detuned tones
+    /// and also rumbles far below its pitch, which turns chords to mud), and a place in the stereo field by
+    /// pitch (low notes left, high notes right, like a piano), which makes chords wide.
+    /// - Parameters:
+    ///   - release: fade-out after the note ends, in seconds.
+    ///   - keyPan: how far left or right the lowest and highest notes sit (0 = all in the middle).
+    ///   - octave: plays every note this many octaves up (positive) or down (negative).
+    static func rawSample(_ notes: [NoteEvent], ctx: RenderContext, mix: Mix, release: Float = 0.08,
+                          keyPan: Float = 0.35, octave: Int = 0) {
+        let sp = AloboiSample.shared
         let sr = ctx.sr
         let invSr = 1 / sr
-        let rel = max(patch.release, 0.03)
-        let sampler: AloboiSample? = patch.sample > 0.001 ? AloboiSample.shared : nil
-        // The three sources are scaled so that together they peak at about 1 (the bit crusher's full scale).
-        let srcSum = max(patch.pulse + patch.tri + patch.sample, 0.1)
-        let pulseLevel = patch.pulse / srcSum
-        let triLevel = patch.tri / srcSum
-        let sampleLevel = patch.sample / srcSum * 1.4
-        let triSteps = max(patch.triSteps, 2)
-        let levels: Float = patch.bits >= 16 ? 0 : Float(1 << (min(max(patch.bits, 3), 15) - 1))
-        let hold = max(1, patch.hold)
-        // The two copies of every note: A leans left and is tuned a little down, B leans right and up.
-        let width = clampf(patch.width, 0, 1)
-        let angA = (1 - width) * 0.25 * Float.pi
-        let angB = (1 + width) * 0.25 * Float.pi
-        let copyLevel: Float = 0.5 * 1.4142135
-        let aL = cos(angA) * copyLevel, aR = sin(angA) * copyLevel
-        let bL = cos(angB) * copyLevel, bR = sin(angB) * copyLevel
-        let ratioA = centsRatio(-0.5 * patch.detune)
-        let ratioB = centsRatio(0.5 * patch.detune)
-        let thump = clampf(patch.thump, 0, 0.95)
-        let thumpTau = max(patch.thumpTau, 0.01)
-        let brightTau = max(patch.brightTau, 0.01)
-        let useHammer = patch.hammer > 0.001
-        let pwmDepth = clampf(patch.pwmDepth, 0, 0.35)
-        let pwmHz = patch.pwmRate
+        let rel = max(release, 0.01)
+        let attack: Float = 0.005
+        let shift = Float(pow(2.0, Double(octave)))
+        let width = clampf(keyPan, 0, 1)
 
-        for (ni, n) in notes.enumerated() {
+        for n in notes {
             if n.vel <= 0.001 { continue }
-            let f = Float(ctx.tuning.frequency(semis: n.semis, beat: n.beat))
+            let f = Float(ctx.tuning.frequency(semis: n.semis, beat: n.beat)) * shift
             if !(f > 20) || f > sr * 0.2 { continue }
             let start = max(0, ctx.frame(beat: n.beat))
             if start >= ctx.frames { continue }
             let durS = Float(n.dur * ctx.spb)
-            let total = max(1, Int((durS + rel + 0.02) * sr))
-            let tau = max(clampf(patch.tauBase - f / patch.tauSlope, patch.tauMin, patch.tauMax), 0.05)
-            let dSlow = exp(-1 / (tau * sr))
-            let dFast = exp(-1 / (thumpTau * sr))
-            let dBright = exp(-1 / (brightTau * sr))
-            let dHammer = exp(-1 / (0.008 * sr))
-            let strikeHz = patch.strike * (0.5 + 0.5 * n.vel)
-            let keepHz = patch.keep * f
-
-            var slow: Float = 1 - thump
-            var fast: Float = thump
-            var bright: Float = 1
-            var hammerEnv: Float = patch.hammer * n.vel
-            // Both copies start together (like two piano strings hit by one hammer) and drift apart slowly,
-            // so the note is wide but never cancels out when a phone plays both sides through one speaker.
-            var phA = Float((ni * 37) % 100) / 100
-            var phB = phA
-            var dtA = f * ratioA * invSr
-            var dtB = f * ratioB * invSr
-            let sampleStep: Double = sampler?.increment(forHz: f, sr: sr) ?? 0
-            let toSample: Double = sampleStep / Double(f * invSr)
-            var posA: Double = 0
-            var posB: Double = 0
-            var stepA = sampleStep
-            var stepB = sampleStep
-            var wanderA: Float = 0
-            var wanderB: Float = 0
-            var wanderNoise = Noise(seed: UInt32(truncatingIfNeeded: ni &* 6151 &+ 17))
-            var hammerNoise = Noise(seed: UInt32(truncatingIfNeeded: ni &* 2903 &+ 5))
-            var hammerFilter = SVF(cutoff: patch.hammerHz, q: 1.2, sr: sr)
-            var fA = SVF(cutoff: keepHz + strikeHz, q: patch.q, sr: sr)
-            var fB = SVF(cutoff: keepHz + strikeHz, q: patch.q, sr: sr)
-            // The sample is a stack of detuned tones, so it also hums below the note (its loop repeats 20
-            // times slower than the note). A high-pass just under the note keeps the piano clean and clear.
-            var hpA = SVF(cutoff: f * 0.6, q: 0.7, sr: sr)
-            var hpB = SVF(cutoff: f * 0.6, q: 0.7, sr: sr)
-            var pwA = patch.pulseWidth
-            var pwB = patch.pulseWidth
-            let pwmPhase = Float(ni % 9) * 0.7
-            var heldA: Float = 0
-            var heldB: Float = 0
-            var holdCount = 0
+            let total = max(1, Int((durS + rel) * sr))
+            let step = sp.increment(forHz: f, sr: sr)
+            var pos: Double = 0
+            // Middle C in the centre, two octaves either side at the edges of `keyPan`.
+            let midi = 69 + 12 * log2(f / 440)
+            let m = mix.with(pan: clampf((midi - 60) / 24, -1, 1) * width)
+            var hp1 = SVF(cutoff: f * 0.6, q: 0.6, sr: sr)
+            var hp2 = SVF(cutoff: f * 0.6, q: 0.6, sr: sr)
 
             for k in 0..<total {
                 let i = start + k
                 if i >= ctx.frames { break }
                 let t = Float(k) * invSr
-
-                if k & 15 == 0 {
-                    // Each copy wanders slowly out of tune by itself (about `wander` cents).
-                    if patch.wander > 0.001 {
-                        wanderA += (wanderNoise.next() - wanderA) * 0.004
-                        wanderB += (wanderNoise.next() - wanderB) * 0.004
-                        dtA = f * ratioA * (1 + 0.022 * patch.wander * wanderA) * invSr
-                        dtB = f * ratioB * (1 + 0.022 * patch.wander * wanderB) * invSr
-                        if sampler != nil {
-                            stepA = toSample * Double(dtA)
-                            stepB = toSample * Double(dtB)
-                        }
-                    }
-                    if pwmDepth > 0 {
-                        let tAbs = Float(i) * invSr
-                        let s = sin(twoPi * pwmHz * tAbs + pwmPhase)
-                        let s2 = sin(twoPi * pwmHz * tAbs + pwmPhase + 1.2)
-                        pwA = clampf(patch.pulseWidth + pwmDepth * s, 0.08, 0.92)
-                        pwB = clampf(patch.pulseWidth + pwmDepth * s2, 0.08, 0.92)
-                    }
-                    let cut = keepHz + strikeHz * bright
-                    fA.set(cutoff: cut, q: patch.q, sr: sr)
-                    fB.set(cutoff: cut, q: patch.q, sr: sr)
-                }
-
-                // The chip tone of each copy: pulse wave + stepped triangle + the Aloboi Synth sample.
-                // (A pulse wave that is not square has an average level of 2 x width - 1; it is taken away,
-                // otherwise every note would push the speaker out and back with a low thump.)
-                let triA = (4 * abs(phA - 0.5) - 1)
-                let triB = (4 * abs(phB - 0.5) - 1)
-                var xA = pulseLevel * (squareBL(phA, dtA, pwA) - (2 * pwA - 1))
-                    + triLevel * ((triA * triSteps).rounded() / triSteps)
-                var xB = pulseLevel * (squareBL(phB, dtB, pwB) - (2 * pwB - 1))
-                    + triLevel * ((triB * triSteps).rounded() / triSteps)
-                advance(&phA, dtA)
-                advance(&phB, dtB)
-                if let sp = sampler {
-                    xA += sampleLevel * hpA.highpass(sp.read(posA))
-                    xB += sampleLevel * hpB.highpass(sp.read(posB))
-                    sp.advance(&posA, stepA)
-                    sp.advance(&posB, stepB)
-                }
-
-                // Piano brightness: bright at the hammer, then darker.
-                var yA = fA.lowpass(xA)
-                var yB = fB.lowpass(xB)
-
-                // A little scratch: hold samples and round them to a few bits, like an old sampler chip.
-                if hold > 1 {
-                    if holdCount == 0 {
-                        heldA = yA
-                        heldB = yB
-                    }
-                    holdCount += 1
-                    if holdCount >= hold { holdCount = 0 }
-                    yA = heldA
-                    yB = heldB
-                }
-                if levels > 0 {
-                    yA = (clampf(yA, -1, 1) * levels).rounded() / levels
-                    yB = (clampf(yB, -1, 1) * levels).rounded() / levels
-                }
-
-                // Hammer click (the same in both ears).
-                var click: Float = 0
-                if useHammer && hammerEnv > 0.0005 {
-                    click = hammerFilter.bandpass(hammerNoise.next()) * hammerEnv
-                    hammerEnv *= dHammer
-                }
-
-                // Piano loudness: a quick drop after the hammer, then a long fade; let go at the note's end.
-                var env = slow + fast
-                slow *= dSlow
-                fast *= dFast
-                bright *= dBright
-                if t < 0.0015 { env *= t / 0.0015 }
+                var env: Float = 1
+                if t < attack { env = t / attack }
                 if t > durS { env *= max(0, 1 - (t - durS) / rel) }
-                let amp = env * n.vel
-                let outL = (yA * aL + yB * bL) * amp + click
-                let outR = (yA * aR + yB * bR) * amp + click
-                ctx.bus.addStereo(i, outL, outR, mix, ctx.duck(i, mix.duck))
+                let y = hp2.highpass(hp1.highpass(sp.read(pos)))
+                sp.advance(&pos, step)
+                ctx.bus.add(i, y * env * n.vel, m, ctx.duck(i, m.duck))
             }
         }
     }

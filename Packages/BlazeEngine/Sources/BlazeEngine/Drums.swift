@@ -214,7 +214,7 @@ extension DrumKitSpec {
         }
         w = w.map { ($0.0, $0.1 * genreFactor(genre, $0.0) * moodFactor(mood, $0.0)) }
         if aloboi {
-            // Under the Aloboi piano: a classic house kit or soft, dusty, natural drums; no big 808s or gated snares.
+            // Under the raw Aloboi Synth: a classic house kit or soft, dusty, natural drums; no big 808s or gated snares.
             if !w.contains(where: { $0.0 == .softThump }) { w.append((.softThump, 1.5)) }
             if !w.contains(where: { $0.0 == .dustyLofi }) { w.append((.dustyLofi, 1.5)) }
             w = w.map { item -> (KitCharacter, Double) in

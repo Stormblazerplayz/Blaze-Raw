@@ -4,7 +4,7 @@
 enum AloboiSampleData {
     static let sampleRate: Double = 48000
     /// The frequency the sample sounds at (20 cycles fit exactly into the loop).
-    static let rootHz: Double = 258.620690
+    static let rootHz: Double = 129.310345
     static let loopStart = 83169
     static let loopEnd = 86881
     static let base64 = """

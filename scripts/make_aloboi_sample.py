@@ -44,9 +44,11 @@ assert start == 0 and 0 < loop_start < loop_end <= end, "unexpected sample layou
 loop_len = loop_end - loop_start
 frames = loop_end  # everything before the end of the loop; the tail after it is never played
 
-# The loop holds a whole number of cycles of the main pitch of the sample (measured: 20), so the exact
-# frequency the sample sounds at is cycles * rate / loop length.
-CYCLES_IN_LOOP = 20
+# The loop holds a whole number of cycles of the sample's pitch, so the exact frequency the sample sounds at
+# is cycles * rate / loop length. Measured with an autocorrelation of the loop: the waveform repeats every
+# 1/10 of the loop (correlation 0.64; at 1/20 of the loop it is -0.26), so the loop holds 10 cycles and the
+# sample sounds at about 129.3 Hz, a little under C3 (the SoundFont's root key 60 is an octave too high).
+CYCLES_IN_LOOP = 10
 root_hz = CYCLES_IN_LOOP * rate / loop_len
 
 pcm = smpl[start * 2:frames * 2]

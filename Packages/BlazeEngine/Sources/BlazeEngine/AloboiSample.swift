@@ -5,10 +5,10 @@ import Foundation
 /// scripts/make_aloboi_sample.py), so the engine needs no files at run time and works the same on iOS,
 /// macOS and Linux.
 ///
-/// The sample is a steady tone that repeats (a loop of 3712 frames holds exactly 20 cycles of its main
-/// pitch). It is played like a sampler plays a note: faster for higher notes, slower for lower notes, and
-/// looping at the loop points for as long as the note is held. Everything else about the note (envelope,
-/// filter, vibrato, stereo detune) comes from the SynthPatch that uses it.
+/// The sample is a steady, buzzy tone that repeats (a loop of 3712 frames holds exactly 10 cycles of its
+/// pitch, about 129.3 Hz, a little under C3). It is played like a SoundFont player plays a note: faster for
+/// higher notes, slower for lower notes, and looping at the loop points for as long as the note is held.
+/// `Synths.rawSample` plays it exactly like that (the Aloboi sound); synth patches can also mix it in.
 final class AloboiSample {
     /// One shared copy (decoding the text takes a few milliseconds, and happens only once).
     static let shared = AloboiSample()
@@ -51,12 +51,13 @@ final class AloboiSample {
     }
 
     /// Source frames to step per output frame for a note of `hz` rendered at `sr`.
-    /// Notes far from the sample's own pitch are folded by octaves so a very high note does not fold back
-    /// (alias) and a very low note does not slow the sample down to a crawl.
+    /// Notes far from the sample's own pitch (more than about 2.5 octaves above it, or more than 1.7 below)
+    /// are folded by octaves so a very high note does not fold back (alias) badly and a very low note does
+    /// not slow the sample down to a crawl.
     func increment(forHz hz: Float, sr: Float) -> Double {
         var ratio = Double(hz) / rootHz
         if !(ratio > 0) { return 0 }
-        while ratio > 4.5 { ratio *= 0.5 }
+        while ratio > 6 { ratio *= 0.5 }
         while ratio < 0.3 { ratio *= 2 }
         return ratio * rate / Double(sr)
     }
