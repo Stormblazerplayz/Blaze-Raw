@@ -39,6 +39,18 @@ public enum SongEngine {
         /// The song's reverb amount applied to an instrument's own send.
         func rv(_ x: Float) -> Float { min(x * fx.sendScale, 1) }
 
+        /// How much the raw Aloboi Synth is turned down to be as loud as the original electric piano on the
+        /// same note (measured once, only when a song uses it).
+        var rawTrimValue: Float? = nil
+        func rawTrim() -> Float {
+            if let v = rawTrimValue { return v }
+            let v = Calibration.trim(grit: grit, intensity: intensity, semis: 34, aux: 0,
+                                     chosen: { c, n in Synths.rawSample(n, ctx: c, mix: unit) },
+                                     reference: { c, n in Synths.keys(n, ctx: c, mix: unit, patch: classic.keys) })
+            rawTrimValue = v
+            return v
+        }
+
         // The list of jobs, in order. Drums come first because other instruments "duck" around the kick.
         var jobs: [(weight: Double, run: () -> Void)] = []
 
@@ -59,8 +71,10 @@ public enum SongEngine {
                     let trim = Calibration.trim(grit: grit, intensity: intensity, semis: 12, aux: 0,
                                                 chosen: { c, n in Synths.bass(n, ctx: c, mix: unit, patch: pal.sub) },
                                                 reference: { c, n in Synths.bass(n, ctx: c, mix: unit, patch: classic.sub) })
+                    // With the Aloboi sound the bass steps back a little, so the Aloboi Synth leads.
+                    let aloboiTrim: Float = pal.aloboi ? 0.75 : 1
                     Synths.bass(plan.bassNotes(), ctx: ctx,
-                                mix: Mix(gain: 0.33 * trim * pal.sub.gain, duck: duck * 0.8), patch: pal.sub)
+                                mix: Mix(gain: 0.33 * trim * pal.sub.gain * aloboiTrim, duck: duck * 0.8), patch: pal.sub)
                 }))
             case .growlBass:
                 jobs.append((0.08, {
@@ -69,6 +83,13 @@ public enum SongEngine {
                                                 reference: { c, n in Synths.growl(n, ctx: c, mix: unit, patch: classic.growl) })
                     Synths.growl(plan.growlNotes(), ctx: ctx,
                                  mix: Mix(gain: 0.30 * trim * pal.growl.gain, duck: duck), patch: pal.growl)
+                }))
+            case .pad where pal.aloboi:
+                // Held chords on the raw Aloboi Synth.
+                jobs.append((0.1, {
+                    Synths.rawSample(plan.padNotes(), ctx: ctx,
+                                     mix: Mix(gain: 0.16 * rawTrim(), reverb: rv(revAmt), duck: duck),
+                                     release: 0.35, keyPan: 0.6)
                 }))
             case .pad:
                 // The song's "chorus" setting adds analog-style drift and width to the pad.
@@ -96,6 +117,13 @@ public enum SongEngine {
                                 mix: Mix(gain: 0.15 * trim * pal.strings.gain, reverb: rv(revAmt + 0.1), duck: duck * 0.8),
                                 patch: pal.strings, tiers: stringTiers)
                 }))
+            case .lead where pal.aloboi:
+                // The melody on the raw Aloboi Synth, an octave down (where the sample sounds best).
+                jobs.append((0.06, {
+                    Synths.rawSample(plan.leadNotes(), ctx: ctx,
+                                     mix: Mix(gain: 0.34 * rawTrim(), reverb: rv(revAmt * 0.6), delay: 0.2, duck: duck * 0.3),
+                                     release: 0.1, keyPan: 0.3, octave: -1)
+                }))
             case .lead:
                 jobs.append((0.06, {
                     let trim = Calibration.trim(grit: grit, intensity: intensity, semis: 48, aux: 0,
@@ -104,6 +132,13 @@ public enum SongEngine {
                     Synths.poly(plan.leadNotes(), ctx: ctx,
                                 mix: Mix(gain: 0.22 * trim * pal.lead.gain, reverb: rv(0.2), delay: 0.3, duck: duck * 0.5),
                                 patch: pal.lead)
+                }))
+            case .piano where pal.aloboi:
+                // The piano part (chords played like a pianist) on the raw Aloboi Synth.
+                jobs.append((0.06, {
+                    Synths.rawSample(plan.pianoNotes(), ctx: ctx,
+                                     mix: Mix(gain: 0.5 * rawTrim(), reverb: rv(revAmt * 0.8), duck: duck * 0.3),
+                                     release: 0.12, keyPan: 0.7)
                 }))
             case .piano:
                 jobs.append((0.06, {
@@ -140,6 +175,13 @@ public enum SongEngine {
                     Synths.bells(plan.bellNotes(), ctx: ctx,
                                  mix: Mix(gain: 0.16 * trim * pal.bells.gain, reverb: rv(0.55), delay: 0.25),
                                  patch: pal.bells)
+                }))
+            case .arp where pal.aloboi:
+                // Fast runs on the raw Aloboi Synth, an octave down, like the arpeggios of old computer music.
+                jobs.append((0.05, {
+                    Synths.rawSample(plan.arpNotes(), ctx: ctx,
+                                     mix: Mix(gain: 0.18 * rawTrim(), reverb: rv(0.25), delay: 0.3, duck: duck * 0.5),
+                                     release: 0.04, keyPan: 0.7, octave: -1)
                 }))
             case .arp:
                 jobs.append((0.05, {

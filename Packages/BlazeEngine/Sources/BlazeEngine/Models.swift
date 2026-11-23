@@ -268,7 +268,9 @@ public struct SongSettings: Codable, Equatable, Hashable, Sendable {
     /// third 5:4, a pure fifth 3:2, a pure seventh 7:4...), like a MIDI retuning tool does for a keyboard.
     /// The chord roots follow just intonation, so this also switches `justIntonation` on.
     public var alobend: Bool
-    /// The Aloboi sound: unstable oscillators, Reese basses, rich pads and the "Aloboi Synth" sample.
+    /// The Aloboi sound: the Aloboi Synth (Assets/Aloboi_Synth.sf2) plays the piano part, the pad, the melody and
+    /// the arpeggios raw, the way a SoundFont player plays it, with classical piano patterns, rich chords, a
+    /// warm bass and natural drums.
     public var aloboiSound: Bool
     public var seed: UInt64
 
@@ -387,7 +389,7 @@ public enum StylePreset: String, CaseIterable, Identifiable, Sendable {
 
     public var blurb: String {
         switch self {
-        case .aloboi: return "Unstable synths, Reese bass, rich pads, the Aloboi Synth sound and chords bent into pure ratios."
+        case .aloboi: return "The raw Aloboi Synth playing chords and the melody, bent into pure ratios, over a house or downtempo beat."
         case .lofiChill: return "Slow, warm e-piano, soft guitar and a lazy beat."
         case .darkTechno: return "Driving beat, growling bass and a robot voice."
         case .happyPop: return "Bright chords, strummed guitar and a sing-along duet."
@@ -407,13 +409,16 @@ public enum StylePreset: String, CaseIterable, Identifiable, Sendable {
     public func settings(seed: UInt64) -> SongSettings {
         switch self {
         case .aloboi:
-            // Based on the public tags of the track: electronic, house, downtempo, vocal. The artist relies
-            // on MPE synths (Vital, Serum) for unstable oscillators, Reese basses and rich pads, and on a
-            // MIDI retuning tool (Alobend) that bends chords into pure just-intonation ratios.
-            return SongSettings(tempo: 122, mood: .dark, genre: .electronic,
-                                instruments: [.drums, .subBass, .growlBass, .pad, .arp, .lead],
-                                vocals: [.vocalChops, .femaleAah],
-                                key: nil, lengthSeconds: 90, intensity: 0.75, grit: 0.75,
+            // "Just Raw": just intonation (Alobend) and the raw Aloboi Synth. Aloboi's Bandcamp page describes
+            // the sound as "like if Commodore made pianos instead of computers" and "wide and a little scratchy,
+            // but never synthetic"; the tags are electronic, house and downtempo, the tracks are short, and the
+            // composer is classically trained. So the Aloboi Synth plays chords like a pianist and the melody, in
+            // rich chords bent into pure ratios, over a house beat (even seeds) or a downtempo groove (odd seeds).
+            let house = seed % 2 == 0
+            return SongSettings(tempo: house ? 120 : 92, mood: .introspective, genre: house ? .electronic : .downtempo,
+                                instruments: [.drums, .subBass, .lead, .piano],
+                                vocals: [],
+                                key: nil, lengthSeconds: 120, intensity: 0.6, grit: 0.4,
                                 justIntonation: true, alobend: true, aloboiSound: true, seed: seed)
         case .lofiChill:
             return SongSettings(tempo: 78, mood: .chill, genre: .lofi,

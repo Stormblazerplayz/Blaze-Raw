@@ -26,12 +26,12 @@ enum StyleMaker {
 
         var colorRNG = rng.fork(43)
         let colorWeights = combineWeights(gt.colors, mt.colors)
-        let colorVerse = colorRNG.pickWeighted(colorWeights)
+        var colorVerse = colorRNG.pickWeighted(colorWeights)
         var colorChorus = colorVerse
         if !colorRNG.chance(0.5) { colorChorus = colorRNG.pickWeighted(colorWeights) }
 
         var voiceRNG = rng.fork(44)
-        let openVoicings = voiceRNG.chance(gt.openVoicing)
+        var openVoicings = voiceRNG.chance(gt.openVoicing)
 
         var liftRNG = rng.fork(45)
         let liftChance = min(max(gt.keyLift + mt.keyLift, 0), 0.5)
@@ -40,7 +40,20 @@ enum StyleMaker {
 
         // MARK: rhythm and bass
         var drumRNG = rng.fork(46)
-        let drumStyle = drumRNG.pickWeighted(combineWeights(gt.drums, mt.drums))
+        var drumStyle = drumRNG.pickWeighted(combineWeights(gt.drums, mt.drums))
+        if s.aloboiSound {
+            // House (four on the floor) and downtempo (half-time, boom bap) grooves, as in Aloboi's tags.
+            var aloDrums = rng.fork(53)
+            let w = combineWeights(gt.drums, mt.drums).map { item -> (DrumStyle, Double) in
+                switch item.0 {
+                case .fourOnFloor: return (item.0, item.1 * 4)
+                case .halfTime, .boomBap: return (item.0, item.1 * 1.5)
+                case .gated80s, .epic, .breakbeat: return (item.0, item.1 * 0.2)
+                default: return item
+                }
+            }
+            drumStyle = aloDrums.pickWeighted(w)
+        }
         let grooveVariant = drumRNG.int(0...7)
 
         var bassRNG = rng.fork(47)
@@ -94,16 +107,34 @@ enum StyleMaker {
         let strumIndex = partRNG.pick(gt.strums)
         let strumPattern = Banks.strumPatterns[min(max(strumIndex, 0), Banks.strumPatterns.count - 1)]
         let padStyle = partRNG.pickWeighted(gt.padStyles)
-        let pianoMode = partRNG.pickWeighted(gt.piano)
+        var pianoMode = partRNG.pickWeighted(gt.piano)
         let guitarMode = partRNG.pickWeighted(gt.guitar)
-        let leadInVerse = partRNG.chance(gt.leadVerse)
+        var leadInVerse = partRNG.chance(gt.leadVerse)
+        var humanize = gt.humanize
+
+        // MARK: the Aloboi sound (its own generator, so songs without it never change)
+        if s.aloboiSound {
+            var alo = rng.fork(51)
+            // A classically trained player: broken chords, Alberti bass and ballad voicings, rarely plain hits.
+            pianoMode = alo.pickWeighted([(.broken, 3), (.alberti, 2), (.ballad, 2.5), (.slow, 1.5), (.block, 0.8)])
+            // "Alochords": rich chords (sevenths, ninths, added ninths, sixths) that Alobend tunes into pure ratios.
+            let rich: [(ChordColor, Double)] = [(.seventh, 3), (.ninth, 2), (.add9, 2), (.sixth, 1), (.sus2, 0.6), (.triad, 0.6)]
+            colorVerse = alo.pickWeighted(rich)
+            colorChorus = alo.chance(0.5) ? colorVerse : alo.pickWeighted(rich)
+            openVoicings = alo.chance(0.6)
+            // The piano also carries the melody in the verses, and it is played by hand (never perfectly on the grid).
+            leadInVerse = alo.chance(0.7)
+            humanize = max(humanize, 0.008)
+        }
 
         // MARK: sound design (each maker gets its own independent generator)
         let palette = Palette.make(genre: genre, mood: mood, brightness: brightness, aloboi: s.aloboiSound,
                                    rng: rng.fork(240))
-        let kit = DrumKitSpec.make(genre: genre, mood: mood, style: drumStyle, rng: rng.fork(340))
-        let fx = FXSpec.make(genre: genre, mood: mood, reverb: reverb, tempo: s.tempo, rng: rng.fork(250))
-        let master = MasterSpec.make(genre: genre, mood: mood, rng: rng.fork(260))
+        let kit = DrumKitSpec.make(genre: genre, mood: mood, style: drumStyle, aloboi: s.aloboiSound,
+                                   rng: rng.fork(340))
+        let fx = FXSpec.make(genre: genre, mood: mood, reverb: reverb, tempo: s.tempo, aloboi: s.aloboiSound,
+                             rng: rng.fork(250))
+        let master = MasterSpec.make(genre: genre, mood: mood, aloboi: s.aloboiSound, rng: rng.fork(260))
 
         var p = StyleProfile(genre: genre, mood: mood, palette: palette, kit: kit, fx: fx, master: master)
         p.scale = scale
@@ -122,7 +153,7 @@ enum StyleMaker {
         p.bassVariant = bassVariant
         p.swing = swing
         p.duck = duck
-        p.humanize = gt.humanize
+        p.humanize = humanize
         p.brightness = brightness
         p.reverb = reverb
         p.density = density

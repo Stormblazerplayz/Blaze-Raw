@@ -166,9 +166,10 @@ enum KitCharacter: Int, CaseIterable {
 }
 
 extension DrumKitSpec {
-    static func make(genre: Genre?, mood: Mood, style: DrumStyle, rng: SeededRNG) -> DrumKitSpec {
+    static func make(genre: Genre?, mood: Mood, style: DrumStyle, aloboi: Bool = false,
+                     rng: SeededRNG) -> DrumKitSpec {
         var pick = rng.fork(1)
-        let kind = chooseCharacter(genre: genre, mood: mood, style: style, g: &pick)
+        let kind = chooseCharacter(genre: genre, mood: mood, style: style, aloboi: aloboi, g: &pick)
         var s = baseSpec(kind)
 
         // Nudge every number a little, so two songs with the same kit character still differ.
@@ -196,7 +197,8 @@ extension DrumKitSpec {
         lo + (hi - lo) * g.float()
     }
 
-    private static func chooseCharacter(genre: Genre?, mood: Mood, style: DrumStyle, g: inout SeededRNG) -> KitCharacter {
+    private static func chooseCharacter(genre: Genre?, mood: Mood, style: DrumStyle, aloboi: Bool,
+                                        g: inout SeededRNG) -> KitCharacter {
         var w: [(KitCharacter, Double)]
         switch style {
         case .fourOnFloor: w = [(.tight909, 5), (.punchyElectro, 3), (.deep808, 2), (.disco, 1)]
@@ -211,6 +213,21 @@ extension DrumKitSpec {
         case .minimal: w = [(.ambientSoft, 6), (.softThump, 2)]
         }
         w = w.map { ($0.0, $0.1 * genreFactor(genre, $0.0) * moodFactor(mood, $0.0)) }
+        if aloboi {
+            // Under the raw Aloboi Synth: a classic house kit or soft, dusty, natural drums; no big 808s or gated snares.
+            if !w.contains(where: { $0.0 == .softThump }) { w.append((.softThump, 1.5)) }
+            if !w.contains(where: { $0.0 == .dustyLofi }) { w.append((.dustyLofi, 1.5)) }
+            w = w.map { item -> (KitCharacter, Double) in
+                switch item.0 {
+                case .softThump: return (item.0, item.1 * 2.5)
+                case .dustyLofi: return (item.0, item.1 * 2)
+                case .tight909: return (item.0, item.1 * 1.3)
+                case .deep808, .gated80s, .epicBig: return (item.0, item.1 * 0.15)
+                case .punchyElectro: return (item.0, item.1 * 0.5)
+                default: return item
+                }
+            }
+        }
         return g.pickWeighted(w)
     }
 

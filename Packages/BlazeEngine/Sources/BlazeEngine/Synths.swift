@@ -474,6 +474,58 @@ enum Synths {
         }
     }
 
+    // MARK: - The Aloboi Synth, played raw (the way a SoundFont player plays Assets/Aloboi_Synth.sf2)
+
+    /// Plays the Aloboi Synth sample the way a SoundFont player plays the SoundFont: from its first frame, at
+    /// the note's pitch, looping while the note is held, at full level. The SoundFont sets no envelope, no
+    /// filter and no effects, so only what a mixing engineer would do is added: a 5 ms fade in and a short fade
+    /// out (so notes never click), a high-pass just under each note (the sample is a stack of detuned tones
+    /// and also rumbles far below its pitch, which turns chords to mud), and a place in the stereo field by
+    /// pitch (low notes left, high notes right, like a piano), which makes chords wide.
+    /// - Parameters:
+    ///   - release: fade-out after the note ends, in seconds.
+    ///   - keyPan: how far left or right the lowest and highest notes sit (0 = all in the middle).
+    ///   - octave: plays every note this many octaves up (positive) or down (negative).
+    static func rawSample(_ notes: [NoteEvent], ctx: RenderContext, mix: Mix, release: Float = 0.08,
+                          keyPan: Float = 0.35, octave: Int = 0) {
+        let sp = AloboiSample.shared
+        let sr = ctx.sr
+        let invSr = 1 / sr
+        let rel = max(release, 0.01)
+        let attack: Float = 0.005
+        let shift = Float(pow(2.0, Double(octave)))
+        let width = clampf(keyPan, 0, 1)
+
+        for n in notes {
+            if n.vel <= 0.001 { continue }
+            let f = Float(ctx.tuning.frequency(semis: n.semis, beat: n.beat)) * shift
+            if !(f > 20) || f > sr * 0.2 { continue }
+            let start = max(0, ctx.frame(beat: n.beat))
+            if start >= ctx.frames { continue }
+            let durS = Float(n.dur * ctx.spb)
+            let total = max(1, Int((durS + rel) * sr))
+            let step = sp.increment(forHz: f, sr: sr)
+            var pos: Double = 0
+            // Middle C in the centre, two octaves either side at the edges of `keyPan`.
+            let midi = 69 + 12 * log2(f / 440)
+            let m = mix.with(pan: clampf((midi - 60) / 24, -1, 1) * width)
+            var hp1 = SVF(cutoff: f * 0.6, q: 0.6, sr: sr)
+            var hp2 = SVF(cutoff: f * 0.6, q: 0.6, sr: sr)
+
+            for k in 0..<total {
+                let i = start + k
+                if i >= ctx.frames { break }
+                let t = Float(k) * invSr
+                var env: Float = 1
+                if t < attack { env = t / attack }
+                if t > durS { env *= max(0, 1 - (t - durS) / rel) }
+                let y = hp2.highpass(hp1.highpass(sp.read(pos)))
+                sp.advance(&pos, step)
+                ctx.bus.add(i, y * env * n.vel, m, ctx.duck(i, m.duck))
+            }
+        }
+    }
+
     // MARK: - Guitar (Karplus-Strong string model)
 
     static func guitar(_ notes: [NoteEvent], ctx: RenderContext, mix: Mix, patch: GuitarPatch) {

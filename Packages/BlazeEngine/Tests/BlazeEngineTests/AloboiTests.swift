@@ -2,8 +2,8 @@ import Foundation
 import XCTest
 @testable import BlazeEngine
 
-/// Tests for the "Aloboi sound": the Aloboi Synth sample, unstable oscillators, the Reese bass and the
-/// Alobend chord retuning.
+/// Tests for the "Aloboi sound": the Aloboi Synth sample played raw (like a SoundFont player), unstable
+/// oscillators, the Reese bass and the Alobend chord retuning.
 final class AloboiTests: XCTestCase {
 
     // MARK: helpers
@@ -57,6 +57,22 @@ final class AloboiTests: XCTestCase {
                                 tuning: TuningSystem(tonicHz: midiToHz(24), just: false), grit: 0.5, intensity: 0.7)
         Synths.poly([NoteEvent(beat: 0, dur: beats, semis: semis, vel: 0.9)], ctx: ctx, mix: Mix(gain: 1), patch: patch)
         return (0..<frames).map { ctx.bus.l[$0] }
+    }
+
+    /// Plays one note on the raw Aloboi Synth and returns both channels.
+    private func playRaw(semis: Int, beats: Double = 3, seconds: Double = 2.5, octave: Int = 0,
+                         keyPan: Float = 0.35) -> (l: [Float], r: [Float]) {
+        let sr: Float = 44100
+        let frames = Int(Double(sr) * seconds)
+        let ctx = RenderContext(sr: sr, bpm: 120, frames: frames, bodyFrames: frames,
+                                tuning: TuningSystem(tonicHz: midiToHz(24), just: false), grit: 0.5, intensity: 0.7)
+        Synths.rawSample([NoteEvent(beat: 0, dur: beats, semis: semis, vel: 0.9)], ctx: ctx, mix: Mix(gain: 1),
+                         keyPan: keyPan, octave: octave)
+        return ((0..<frames).map { ctx.bus.l[$0] }, (0..<frames).map { ctx.bus.r[$0] })
+    }
+
+    private func rms(_ x: [Float], from a: Int, to b: Int) -> Double {
+        rms(Array(x[max(0, a)..<min(b, x.count)]))
     }
 
     /// Plays one note of a bass patch and returns the left channel.
@@ -150,8 +166,8 @@ final class AloboiTests: XCTestCase {
         XCTAssertEqual(s.loopEnd, 86881)
         XCTAssertEqual(s.loopLength, 3712)
         XCTAssertEqual(s.rate, 48000)
-        // 20 cycles of the main pitch fit into the loop: 20 * 48000 / 3712 Hz.
-        XCTAssertEqual(s.rootHz, 258.62, accuracy: 0.01)
+        // 10 cycles of the sample's pitch fit into the loop: 10 * 48000 / 3712 Hz, a little under C3.
+        XCTAssertEqual(s.rootHz, 129.31, accuracy: 0.01)
         XCTAssertTrue(finite(s.frames))
         XCTAssertLessThanOrEqual(s.frames.map { abs($0) }.max() ?? 2, 1.0)
         // Measured when the sample was added: the RMS of the whole sample is 0.218.
@@ -187,13 +203,15 @@ final class AloboiTests: XCTestCase {
         XCTAssertEqual(atRoot, 48000.0 / 44100.0, accuracy: 1e-5)
         XCTAssertEqual(s.increment(forHz: Float(s.rootHz) * 2, sr: sr), 2 * atRoot, accuracy: 1e-4)
         XCTAssertEqual(s.increment(forHz: Float(s.rootHz) / 2, sr: sr), atRoot / 2, accuracy: 1e-4)
+        // Up to about 2.5 octaves above the sample's pitch it plays as it is (no octave jumps in a melody).
+        XCTAssertEqual(s.increment(forHz: Float(s.rootHz) * 5.5, sr: sr), 5.5 * atRoot, accuracy: 1e-3)
         // Far too high or too low: folded by octaves, so it never aliases badly and never crawls.
         XCTAssertEqual(s.increment(forHz: Float(s.rootHz) * 8, sr: sr), 4 * atRoot, accuracy: 1e-3)
         XCTAssertEqual(s.increment(forHz: Float(s.rootHz) / 8, sr: sr), 0.5 * atRoot, accuracy: 1e-3)
         for hz in [20, 55, 110, 220, 440, 880, 1760, 3520, 7040] as [Float] {
             let inc = s.increment(forHz: hz, sr: sr)
             XCTAssertGreaterThan(inc, 0.25 * 48000 / 44100, "\(hz) Hz")
-            XCTAssertLessThan(inc, 4.6 * 48000 / 44100, "\(hz) Hz")
+            XCTAssertLessThan(inc, 6.1 * 48000 / 44100, "\(hz) Hz")
         }
         XCTAssertEqual(s.increment(forHz: 0, sr: sr), 0)
         XCTAssertEqual(s.increment(forHz: -5, sr: sr), 0)
@@ -205,16 +223,17 @@ final class AloboiTests: XCTestCase {
         p.sample = 1; p.oscLevel = 0; p.cutoff = 15000; p.q = 0.7
         p.attack = 0.01; p.decay = 0.1; p.sustain = 1; p.release = 0.1
         // After about 1.8 s the sample is inside its loop, an exact comb of partials in which the strongest
-        // one is the 10th harmonic of the loop rate: half the pitch the sample sounds at (measured when the
-        // sample was added). So the strongest low partial of a note must sit at half the note's frequency.
-        for semis in [36, 48, 60] {
+        // one is the 10th harmonic of the loop rate: the sample's pitch. (The first version took the 20th
+        // harmonic for the pitch, so every note sounded an octave too low.) The notes stay within 2.5 octaves
+        // of the sample's own pitch, where nothing is folded by an octave.
+        for semis in [24, 36, 48] {
             let hz = midiToHz(24) * pow(2.0, Double(semis) / 12)
             let x = playNote(p, semis: semis, beats: 8, seconds: 5)
             XCTAssertTrue(finite(x), "semis \(semis)")
             XCTAssertGreaterThan(rms(x), 0.02, "semis \(semis)")
             let peak = strongestPeak(x, from: 100_000, low: 0.25 * hz, high: 2.6 * hz)
-            print("ALOBOI sample pitch check: note \(hz) Hz, strongest partial \(peak) Hz (expected \(hz / 2))")
-            XCTAssertEqual(peak / (hz / 2), 1, accuracy: 0.03, "semis \(semis): the sample is not at the note's pitch")
+            print("ALOBOI sample pitch check: note \(hz) Hz, strongest partial \(peak) Hz")
+            XCTAssertEqual(peak / hz, 1, accuracy: 0.03, "semis \(semis): the sample is not at the note's pitch")
         }
     }
 
@@ -294,27 +313,135 @@ final class AloboiTests: XCTestCase {
     }
 
     func testTheAloboiCharactersAreCommonOnlyWhenTheAloboiSoundIsOn() {
-        var padOn = 0, subOn = 0, leadOn = 0, padOff = 0, subOff = 0
+        var warmBassOn = 0, reeseOn = 0, padOff = 0, subOff = 0
         let trials = 60
         for seed in 1...trials {
             let on = Composer.makePlan(SongSettings(tempo: 122, mood: .dark, genre: .electronic,
                                                     instruments: [.pad, .lead, .subBass], aloboiSound: true,
                                                     seed: UInt64(seed))).profile.palette
-            if on.pad.sample > 0 || on.pad.unstable > 0 { padOn += 1 }
-            if on.sub.kind == .reese { subOn += 1 }
-            if on.lead.sample > 0 || on.lead.unstable > 0 { leadOn += 1 }
+            XCTAssertTrue(on.aloboi)
+            if on.sub.kind == .reese { reeseOn += 1 }
+            if on.sub.kind == .sine || on.sub.kind == .tri || on.sub.kind == .fm { warmBassOn += 1 }
+            XCTAssertTrue(on.summary.contains("lead \(Palette.rawName)"), on.summary)
+            XCTAssertTrue(on.summary.contains("pad \(Palette.rawName)"), on.summary)
             let off = Composer.makePlan(SongSettings(tempo: 118, mood: .happy, genre: .nuDisco,
                                                      instruments: [.pad, .lead, .subBass], aloboiSound: false,
                                                      seed: UInt64(seed))).profile.palette
+            XCTAssertFalse(off.aloboi)
+            XCTAssertFalse(off.summary.contains(Palette.rawName), off.summary)
             if off.pad.sample > 0 || off.pad.unstable > 0 { padOff += 1 }
             if off.sub.kind == .reese { subOff += 1 }
         }
-        print("ALOBOI picks (of \(trials)): with the Aloboi sound pad \(padOn) sub \(subOn) lead \(leadOn); without, in nu-disco: pad \(padOff) sub \(subOff)")
-        XCTAssertGreaterThanOrEqual(padOn, 42)
-        XCTAssertGreaterThanOrEqual(subOn, 42)
-        XCTAssertGreaterThanOrEqual(leadOn, 42)
+        print("ALOBOI picks (of \(trials)): with the Aloboi sound warm bass \(warmBassOn) reese \(reeseOn); without, in nu-disco: pad \(padOff) sub \(subOff)")
+        XCTAssertEqual(warmBassOn, trials, "with the Aloboi sound the bass is always round and warm")
+        XCTAssertEqual(reeseOn, 0, "no Reese bass under the raw Aloboi Synth")
         XCTAssertLessThanOrEqual(padOff, 16, "Aloboi pads should be rare in nu-disco")
         XCTAssertEqual(subOff, 0, "nu-disco never picks a Reese bass")
+    }
+
+    // MARK: the raw Aloboi Synth (played like a SoundFont player plays Aloboi_Synth.sf2)
+
+    func testTheSampleReallySoundsAtC3() {
+        // The waveform in the loop repeats every tenth of the loop (not every twentieth).
+        let s = AloboiSample.shared
+        let loop = Array(s.frames[s.loopStart..<s.loopEnd])
+        func correlation(cycles: Double) -> Double {
+            let lag = Double(loop.count) / cycles
+            var sum = 0.0, energy = 0.0
+            for i in 0..<loop.count {
+                let j = (Double(i) + lag).truncatingRemainder(dividingBy: Double(loop.count))
+                let j0 = Int(j)
+                let fr = j - Double(j0)
+                let y = Double(loop[j0]) * (1 - fr) + Double(loop[(j0 + 1) % loop.count]) * fr
+                sum += Double(loop[i]) * y
+                energy += Double(loop[i]) * Double(loop[i])
+            }
+            return sum / energy
+        }
+        print("ALOBOI loop correlation: 10 cycles \(correlation(cycles: 10)), 20 cycles \(correlation(cycles: 20))")
+        XCTAssertGreaterThan(correlation(cycles: 10), 0.5)
+        XCTAssertLessThan(correlation(cycles: 20), 0)
+        // So the sample's pitch is 129.3 Hz, within 20 cents of C3 (130.81 Hz).
+        XCTAssertLessThan(abs(1200 * log2(s.rootHz / 130.8128)), 20)
+    }
+
+    func testTheRawAloboiSynthPlaysInTuneAndHoldsLikeASoundFont() {
+        for semis in [22, 34, 46] {
+            // Held for 4 beats (2 s at 120 BPM), then let go.
+            let (l, r) = playRaw(semis: semis, beats: 4, seconds: 3)
+            XCTAssertTrue(finite(l) && finite(r), "semis \(semis)")
+            let mono = zip(l, r).map { $0 + $1 }
+            let hz = midiToHz(Double(24 + semis))
+            let found = strongestPeak(mono, from: 2205, low: hz * 0.7, high: hz * 1.4)
+            XCTAssertEqual(found / hz, 1, accuracy: 0.015, "semis \(semis): \(found) Hz instead of \(hz)")
+            // A SoundFont with no envelope holds the note at full level while the key is down...
+            let early = rms(mono, from: 13230, to: 22050)       // 0.3...0.5 s
+            let late = rms(mono, from: 61740, to: 70560)        // 1.4...1.6 s
+            print("ALOBOI raw semis \(semis): early \(early) late \(late)")
+            XCTAssertGreaterThan(early, 0.05, "semis \(semis): silent")
+            XCTAssertEqual(late / early, 1, accuracy: 0.4, "semis \(semis): the level should hold, not fade")
+            // ...and stops right after it is let go.
+            XCTAssertLessThan(rms(mono, from: 92610, to: 132300), early * 0.001, "semis \(semis): did not stop")
+            let peakLevel = mono.map { abs($0) }.max() ?? 0
+            XCTAssertLessThan(peakLevel, 3, "semis \(semis): far too loud")
+        }
+        // An octave shift plays the same note an octave lower.
+        let (down, _) = playRaw(semis: 46, octave: -1)
+        let found = strongestPeak(down, from: 2205, low: midiToHz(58) * 0.7, high: midiToHz(58) * 1.4)
+        XCTAssertEqual(found / midiToHz(58), 1, accuracy: 0.015)
+        // Deterministic.
+        XCTAssertEqual(playRaw(semis: 34).l, playRaw(semis: 34).l)
+    }
+
+    func testRawChordsAreWideLowNotesLeftHighNotesRight() {
+        let (lowL, lowR) = playRaw(semis: 22, keyPan: 0.7)     // A#2: left of middle C
+        let (highL, highR) = playRaw(semis: 58, keyPan: 0.7)   // A#5: right of middle C
+        XCTAssertGreaterThan(rms(lowL), rms(lowR) * 1.2)
+        XCTAssertGreaterThan(rms(highR), rms(highL) * 1.2)
+        let (midL, midR) = playRaw(semis: 0, keyPan: 0)        // no width: dead centre
+        XCTAssertEqual(rms(midL), rms(midR), accuracy: 1e-6)
+    }
+
+    func testTheRawAloboiSynthHasNoRumbleBelowTheNote() {
+        let (l, r) = playRaw(semis: 34)
+        let mono = zip(l, r).map { $0 + $1 }
+        let hz = Float(midiToHz(58))
+        var lp = SVF(cutoff: hz * 0.4, q: 0.7, sr: 44100)
+        var lp2 = SVF(cutoff: hz * 0.4, q: 0.7, sr: 44100)
+        let below = rms(mono.map { lp2.lowpass(lp.lowpass($0)) })
+        print("ALOBOI raw: below the note \(below / rms(mono))")
+        XCTAssertLessThan(below, rms(mono) * 0.15, "the sample's low hum should be cut under the note")
+    }
+
+    func testTheAloboiSoundPlaysThePianoPadMelodyAndArpsOnTheRawAloboiSynth() {
+        let base = SongSettings(tempo: 120, mood: .introspective, genre: .electronic,
+                                instruments: [.piano, .pad, .lead, .arp], lengthSeconds: 60, seed: 5)
+        var on = base
+        on.aloboiSound = true
+        let a = render(on)
+        let b = render(base)
+        checkHealthy(a, "raw Aloboi Synth on piano, pad, lead and arp")
+        XCTAssertNotEqual(a.left, b.left)
+        for part in ["keys", "pad", "lead", "arp"] {
+            XCTAssertTrue(a.recipe.contains("\(part) \(Palette.rawName)"), "\(part): \(a.recipe)")
+            XCTAssertFalse(b.recipe.contains("\(part) \(Palette.rawName)"), "\(part): \(b.recipe)")
+        }
+        // The notes themselves do not change: the same melody, only the sound and the playing style.
+        XCTAssertEqual(Composer.makePlan(on).hook.map { $0.offset }, Composer.makePlan(base).hook.map { $0.offset })
+    }
+
+    func testTheAloboiSoundPlaysLikeAClassicalPianistWithRichChords() {
+        var classical = 0, rich = 0
+        let trials = 40
+        for seed in 1...trials {
+            let p = Composer.makePlan(SongSettings(tempo: 120, mood: .introspective, genre: .electronic,
+                                                   instruments: [.piano], aloboiSound: true, seed: UInt64(seed))).profile
+            if p.pianoMode != .stabs { classical += 1 }
+            if p.colorVerse != .triad { rich += 1 }
+            XCTAssertGreaterThanOrEqual(p.humanize, 0.008, "played by hand")
+        }
+        XCTAssertEqual(classical, trials, "no short stabs: played like a pianist")
+        XCTAssertGreaterThanOrEqual(rich, trials * 3 / 4, "mostly rich chords (sevenths, ninths, sixths)")
     }
 
     // MARK: Alobend tuning
@@ -457,12 +584,19 @@ final class AloboiTests: XCTestCase {
         XCTAssertEqual(old.tempo, 120)
         XCTAssertEqual(old.mood, .dark)
 
-        // The Aloboi-style preset switches everything on.
+        // The Aloboi-style preset switches everything on: the raw Aloboi Synth plays the chords and the melody.
         let preset = StylePreset.aloboi.settings(seed: 1)
         XCTAssertTrue(preset.alobend)
         XCTAssertTrue(preset.aloboiSound)
         XCTAssertTrue(preset.justIntonation)
         XCTAssertTrue(preset.instruments.contains(.lead))
+        XCTAssertTrue(preset.instruments.contains(.piano))
+        XCTAssertFalse(preset.instruments.contains(.growlBass), "never synthetic")
+        XCTAssertTrue(preset.vocals.isEmpty, "instrumental, like Post Raw Instrumentals")
+        // House on even seeds, downtempo on odd seeds (Aloboi's tags: electronic, house, downtempo).
+        XCTAssertEqual(StylePreset.aloboi.settings(seed: 2).genre, .electronic)
+        XCTAssertEqual(StylePreset.aloboi.settings(seed: 3).genre, .downtempo)
+        XCTAssertGreaterThan(StylePreset.aloboi.settings(seed: 2).tempo, StylePreset.aloboi.settings(seed: 3).tempo)
         // And no other preset does by accident.
         for other in StylePreset.allCases where other != .aloboi {
             XCTAssertFalse(other.settings(seed: 1).aloboiSound, "\(other)")
@@ -485,8 +619,7 @@ final class AloboiTests: XCTestCase {
                                  justIntonation: true, alobend: true, aloboiSound: true, seed: UInt64(30 + gi))
             let song = render(s)
             checkHealthy(song, "aloboi \(genre?.rawValue ?? "any") / \(mood)")
-            XCTAssertTrue(song.recipe.contains("Aloboi") || song.recipe.contains("reese") || song.recipe.contains("unstable"),
-                          "the recipe should name the Aloboi sounds: \(song.recipe)")
+            XCTAssertTrue(song.recipe.contains(Palette.rawName), "the recipe should name the raw Aloboi Synth: \(song.recipe)")
         }
     }
 

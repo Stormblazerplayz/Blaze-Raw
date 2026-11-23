@@ -19,15 +19,15 @@ struct AboutView: View {
                         Text("Pick a genre (Electronic, Synthpop, Pop, Chillwave, Downtempo, Ambient, Dream Pop, Indietronica, Lo-fi, Nu-Disco or EDM) to choose the kind of music, then a mood (Relaxed, Introspective, Melancholic, Romantic, Uplifting and more) to choose the feeling. The tempo follows your genre and mood until you move the slider yourself. Choose Any to let the mood decide on its own.")
                     }
                     Card("The Aloboi-style preset") {
-                        Text("This style is inspired by public information about Aloboi's \"Intermodulation\": electronic, house, downtempo and vocal. It makes brand-new music in that spirit and does not copy any song. Use Tap tempo to match the real song's speed, then change the mood, instruments and vocals to make it your own.")
+                        Text("Aloboi calls the series \"Just Raw\": just intonation and the raw synth. Aloboi's Bandcamp page describes the sound as \"like if Commodore made pianos instead of computers\" and \"wide and a little scratchy, but never synthetic\". So this preset plays the Aloboi Synth raw: it plays chords like a pianist and the melody, with rich chords bent into pure ratios, over a house beat or a slower downtempo groove. It makes brand-new music in that spirit and does not copy any song. Use Tap tempo to match a real song's speed, then change the mood and instruments to make it your own.")
                     }
                     Card("The Aloboi sound") {
                         VStack(alignment: .leading, spacing: 8) {
-                            Text("Aloboi relies heavily on MPE-capable virtual synths like Vital and Serum inside Logic Pro to make unstable oscillators, Reese basses and rich synth pads. The Aloboi sound switch brings those ideas to Blaze Raw:")
-                            Text("• Unstable oscillators: every voice wanders slowly out of tune by itself.")
-                            Text("• Reese bass: detuned saws that slowly breathe in and out.")
-                            Text("• Rich pads: wide, drifting synth stacks, plus the built-in \"Aloboi Synth\" sound (a looped sample from a SoundFont).")
-                            Text("• Alobend tuning: Aloboi built Alobend, a custom MIDI retuning tool that bends standard keyboard chords into mathematically pure just-intonation ratios. Pick Alobend under Tuning and every chord is tuned that way, so a major chord becomes exactly 4:5:6 with no beating.")
+                            Text("The Aloboi sound switch brings these ideas to any genre:")
+                            Text("• The Aloboi Synth, raw: the built-in Aloboi Synth SoundFont is played the way a SoundFont player plays it, with no extra synths, filters or crunch. It plays the Piano, Pad, Lead melody and Arpeggio.")
+                            Text("• Played like a classical pianist: broken chords, Alberti bass and ballad chords, slightly off the grid like real hands, with rich chords (sevenths, ninths, sixths). Low notes sit on the left and high notes on the right, so chords sound wide.")
+                            Text("• Plain around it: a round warm bass, soft or classic house drums and a real-sounding room.")
+                            Text("• Alobend tuning: Aloboi built Alobend, a tool that bends standard keyboard chords into mathematically pure just-intonation ratios. Pick Alobend under Tuning and every chord is tuned that way, so a major chord becomes exactly 4:5:6 with no beating.")
                         }
                     }
                     Card("About the vocals") {

@@ -230,9 +230,20 @@ struct Palette {
     var keys: KeysPatch
     var guitar: GuitarPatch
     var bells: BellPatch
+    /// True when the song uses the Aloboi sound: the pad, the lead, the arpeggio and the piano then all play
+    /// the raw Aloboi Synth (see `Synths.rawSample`).
+    var aloboi: Bool = false
+
+    /// What the raw Aloboi Synth is called in a song's recipe.
+    static let rawName = "Aloboi Synth (raw)"
 
     var summary: String {
-        "pad \(pad.name), strings \(strings.name), lead \(lead.name), arp \(arp.name), pluck \(pluck.name), "
+        if aloboi {
+            let raw = Palette.rawName
+            return "pad \(raw), strings \(strings.name), lead \(raw), arp \(raw), pluck \(pluck.name), "
+                + "bass \(sub.name), growl \(growl.name), keys \(raw), guitar \(guitar.name), bells \(bells.name)"
+        }
+        return "pad \(pad.name), strings \(strings.name), lead \(lead.name), arp \(arp.name), pluck \(pluck.name), "
             + "bass \(sub.name), growl \(growl.name), keys \(keys.name), guitar \(guitar.name), bells \(bells.name)"
     }
 
@@ -1085,6 +1096,10 @@ private enum AloboiTaste {
         .pop:          [0.0, 0.0]
     ]
     static let subDefault = 0.25
+
+    // With the Aloboi sound on, the bass is round and warm.
+    //                              sine  saw   square FM   808  funk round warm reese dirty
+    static let subWithAloboiSound: [Double] = [2, 0, 0, 0.5, 0, 0, 3, 4, 0, 0]
 }
 
 // MARK: - Palette.make
@@ -1130,9 +1145,13 @@ extension Palette {
         varySynth(&pluck, tilt, &gPluck)
 
         var gSub = rng.fork(6)
-        let subWeights = characterWeights(GenreTaste.sub, genre, oldCount: PatchLibrary.oldSubCount,
+        var subWeights = characterWeights(GenreTaste.sub, genre, oldCount: PatchLibrary.oldSubCount,
                                           extra: AloboiTaste.sub, extraCount: 2,
-                                          extraDefault: AloboiTaste.subDefault, aloboi: aloboi)
+                                          extraDefault: AloboiTaste.subDefault, aloboi: false)
+        if aloboi {
+            // A round, warm bass under the raw Aloboi Synth (never the Reese: "never synthetic").
+            subWeights = AloboiTaste.subWithAloboiSound
+        }
         var sub = PatchLibrary.sub(pickIndex(subWeights, count: PatchLibrary.subCount, &gSub))
         sub.cutoff *= jit(&gSub, 0.85, 1.2)
         sub.envAmount *= jit(&gSub, 0.8, 1.25)
@@ -1172,7 +1191,7 @@ extension Palette {
         bells.length = max(0.8, bells.length * jit(&gBells, 0.9, 1.15))
 
         return Palette(pad: pad, strings: strings, lead: lead, arp: arp, pluck: pluck, sub: sub,
-                       growl: growl, keys: keys, guitar: guitar, bells: bells)
+                       growl: growl, keys: keys, guitar: guitar, bells: bells, aloboi: aloboi)
     }
 
     /// Mood and seed variation shared by all synth characters.
@@ -1263,7 +1282,8 @@ private struct FXBase {
 }
 
 extension FXSpec {
-    static func make(genre: Genre?, mood: Mood, reverb: Float, tempo: Double, rng: SeededRNG) -> FXSpec {
+    static func make(genre: Genre?, mood: Mood, reverb: Float, tempo: Double, aloboi: Bool = false,
+                     rng: SeededRNG) -> FXSpec {
         var g = rng.fork(21)
         let tilt = MoodTilt(mood)
         var base = FXBase()
@@ -1350,6 +1370,15 @@ extension FXSpec {
         fx.bits = base.bits
         fx.wow = base.wow > 0 ? base.wow * jit(&g, 0.7, 1.3) : 0
         fx.crackle = base.crackle > 0 ? base.crackle * jit(&g, 0.7, 1.3) : 0
+
+        if aloboi {
+            // Raw: a real-sounding room around the Aloboi Synth, no chorus wash and no tape wobble (it would
+            // bend the pure Alobend chords).
+            fx.room = min(max(0.5 * fx.room + 0.3, 0.45), 0.8)
+            fx.damping = min(max(fx.damping, 0.4), 0.6)
+            fx.padChorus = 0
+            fx.wow = 0
+        }
         return fx
     }
 }
@@ -1379,7 +1408,7 @@ struct MasterSpec {
 }
 
 extension MasterSpec {
-    static func make(genre: Genre?, mood: Mood, rng: SeededRNG) -> MasterSpec {
+    static func make(genre: Genre?, mood: Mood, aloboi: Bool = false, rng: SeededRNG) -> MasterSpec {
         var g = rng.fork(31)
         var m = MasterSpec()
         if let gn = genre {
@@ -1409,6 +1438,12 @@ extension MasterSpec {
         m.saturation = min(max(m.saturation * jit(&g, 0.8, 1.2), 0), 1)
         m.ceiling = min(max(m.ceiling, 0.9), 0.97)
         m.width = min(max(m.width * jit(&g, 0.95, 1.05), 0.6), 1.5)
+        if aloboi {
+            // Wide and a little saturated, with less shiny "air" on top.
+            m.width = min(max(m.width * 1.1, 1.2), 1.35)
+            m.saturation = min(m.saturation + 0.08, 1)
+            m.airAmount *= 0.8
+        }
         return m
     }
 }
